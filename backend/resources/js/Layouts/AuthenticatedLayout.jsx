@@ -36,6 +36,12 @@ export default function AuthenticatedLayout({ header, children }) {
                                 >
                                     Estações
                                 </NavLink>
+                                <NavLink
+                                    href={route('alertas-config.index')}
+                                    active={route().current('alertas-config.*')}
+                                >
+                                    Alertas
+                                </NavLink>
                             </div>
                         </div>
 
@@ -145,6 +151,12 @@ export default function AuthenticatedLayout({ header, children }) {
                             active={route().current('estacoes.*')}
                         >
                             Estações
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                            href={route('alertas-config.index')}
+                            active={route().current('alertas-config.*')}
+                        >
+                            Alertas
                         </ResponsiveNavLink>
                     </div>
 

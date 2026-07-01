@@ -29,6 +29,10 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/estacoes/{estacao}/regenerar-token', [EstacaoController::class, 'regenerarToken'])
         ->name('estacoes.regenerar-token');
+
+    Route::resource('alertas-config', App\Http\Controllers\AlertaConfigController::class)
+    ->parameters(['alertas-config' => 'alertaConfig'])
+    ->except(['show']);
 });
 
 require __DIR__.'/auth.php';
