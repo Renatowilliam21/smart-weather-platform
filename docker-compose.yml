@@ -1,0 +1,105 @@
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/php/Dockerfile
+
+    container_name: swp_app
+    restart: unless-stopped
+    working_dir: /var/www
+
+    volumes:
+      - ./backend:/var/www
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy   
+
+
+    networks:
+      - weather-network
+
+  nginx:
+    image: nginx:1.28-alpine
+
+    container_name: swp_nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+
+    volumes:
+      - ./backend:/var/www
+      - ./infrastructure/docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+
+    depends_on:
+      - app
+
+    networks:
+      - weather-network
+
+  mysql:
+    image: mysql:8.4
+
+    container_name: swp_mysql
+
+    restart: unless-stopped
+
+    environment:
+      MYSQL_DATABASE: weather
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: weather
+      MYSQL_PASSWORD: weather
+
+    ports:
+      - "3307:3306"
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+    networks:
+      - weather-network
+
+  redis:
+    image: redis:7-alpine
+
+    container_name: swp_redis
+    restart: unless-stopped
+
+    ports:
+      - "6379:6379"
+    healthcheck:                          
+      test: ["CMD", "redis-cli", "ping"]  
+      interval: 10s                       
+      timeout: 5s                         
+      retries: 5                          
+    networks:
+      - weather-network
+
+  mailpit:
+    image: axllent/mailpit
+
+    container_name: swp_mailpit
+    restart: unless-stopped
+
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
+    networks:
+      - weather-network
+
+volumes:
+  mysql_data:
+
+networks:
+  weather-network:
+    driver: bridge

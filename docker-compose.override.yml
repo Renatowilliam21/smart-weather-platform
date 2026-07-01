@@ -1,0 +1,5 @@
+# docker-compose.override.yml — só o que difere do docker-compose.yml
+services:
+  app:
+    environment:
+      XDEBUG_MODE: develop,debug  # exemplo de override real
