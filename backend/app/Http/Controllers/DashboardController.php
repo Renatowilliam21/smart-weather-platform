@@ -10,23 +10,28 @@ use Inertia\Response;
 
 class DashboardController extends Controller
 {
-    public function index(): Response
+    public function index(Request $request): Response
     {
+        $estacaoId = $request->integer('estacao_id') ?: null;
+
         return Inertia::render('Dashboard', [
             'estacoes' => $this->estacoesComUltimaLeitura(),
-            'serieItgu' => $this->serieItguUltimas24h(),
-            'alertasRecentes' => $this->alertasRecentes(),
+            'serieItgu' => $this->serieItguUltimas24h($estacaoId),
+            'alertasRecentes' => $this->alertasRecentes($estacaoId),
+            'estacaoSelecionada' => $estacaoId,
         ]);
     }
 
     public function refresh(Request $request)
-{
-    return response()->json([
-        'estacoes' => $this->estacoesComUltimaLeitura(),
-        'serieItgu' => $this->serieItguUltimas24h(),
-        'alertasRecentes' => $this->alertasRecentes(),
-    ]);
-}
+    {
+        $estacaoId = $request->integer('estacao_id') ?: null;
+
+        return response()->json([
+            'estacoes' => $this->estacoesComUltimaLeitura(),
+            'serieItgu' => $this->serieItguUltimas24h($estacaoId),
+            'alertasRecentes' => $this->alertasRecentes($estacaoId),
+        ]);
+    }
 
     private function estacoesComUltimaLeitura()
     {
@@ -55,17 +60,21 @@ class DashboardController extends Controller
             });
     }
 
-    private function serieItguUltimas24h()
+    private function serieItguUltimas24h(?int $estacaoId = null)
     {
         return \App\Models\Leitura::where('registrado_em', '>=', now()->subHours(24))
             ->whereNotNull('itgu')
+            ->when($estacaoId, fn ($query) => $query->where('estacao_id', $estacaoId))
             ->orderBy('registrado_em')
             ->get(['estacao_id', 'itgu', 'registrado_em']);
     }
 
-    private function alertasRecentes()
+    private function alertasRecentes(?int $estacaoId = null)
     {
         return AlertaDisparado::with(['alertaConfig.estacao', 'leitura'])
+            ->when($estacaoId, function ($query) use ($estacaoId) {
+                $query->whereHas('alertaConfig', fn ($q) => $q->where('estacao_id', $estacaoId));
+            })
             ->latest()
             ->limit(10)
             ->get()
@@ -81,6 +90,4 @@ class DashboardController extends Controller
                 ];
             });
     }
-
-
 }

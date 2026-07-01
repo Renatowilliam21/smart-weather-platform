@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
@@ -8,7 +8,6 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Corrige bug conhecido dos ícones padrão do Leaflet com bundlers (Vite/Webpack)
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
     iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -21,6 +20,23 @@ const CLASSIFICACAO_CORES = {
     alerta: 'bg-yellow-100 text-yellow-800',
     perigo: 'bg-red-100 text-red-800',
 };
+
+function SeletorEstacao({ estacoes, estacaoSelecionada, onChange }) {
+    return (
+        <select
+            value={estacaoSelecionada ?? ''}
+            onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+            className="rounded-md border-gray-300 shadow-sm text-sm focus:ring-gray-500 focus:border-gray-500"
+        >
+            <option value="">Todas as estações</option>
+            {estacoes.map((estacao) => (
+                <option key={estacao.id} value={estacao.id}>
+                    {estacao.nome}
+                </option>
+            ))}
+        </select>
+    );
+}
 
 function EstacaoCard({ estacao }) {
     const leitura = estacao.ultima_leitura;
@@ -77,7 +93,6 @@ function EstacaoCard({ estacao }) {
 }
 
 function GraficoItgu({ serieItgu, estacoes }) {
-    // Agrupa por timestamp, criando uma coluna por estação
     const nomesPorId = Object.fromEntries(estacoes.map(e => [e.id, e.nome]));
 
     const dadosPorTimestamp = {};
@@ -94,7 +109,8 @@ function GraficoItgu({ serieItgu, estacoes }) {
     });
 
     const dados = Object.values(dadosPorTimestamp);
-    const nomesEstacoes = [...new Set(estacoes.map(e => e.nome))];
+    const idsPresentes = [...new Set(serieItgu.map(l => l.estacao_id))];
+    const nomesEstacoes = idsPresentes.map(id => nomesPorId[id] ?? `Estação ${id}`);
     const cores = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea'];
 
     return (
@@ -165,7 +181,7 @@ function MapaEstacoes({ estacoes }) {
     const comCoordenadas = estacoes.filter((e) => e.latitude && e.longitude);
     const centro = comCoordenadas.length > 0
         ? [parseFloat(comCoordenadas[0].latitude), parseFloat(comCoordenadas[0].longitude)]
-        : [-5.1, -39.1]; // fallback: Ceará
+        : [-5.1, -39.1];
 
     return (
         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
@@ -202,14 +218,28 @@ function MapaEstacoes({ estacoes }) {
     );
 }
 
-export default function Dashboard({ estacoes: estacoesIniciais, serieItgu: serieInicial, alertasRecentes: alertasIniciais }) {
+export default function Dashboard({
+    estacoes: estacoesIniciais,
+    serieItgu: serieInicial,
+    alertasRecentes: alertasIniciais,
+    estacaoSelecionada,
+}) {
     const [estacoes, setEstacoes] = useState(estacoesIniciais);
     const [serieItgu, setSerieItgu] = useState(serieInicial);
     const [alertasRecentes, setAlertasRecentes] = useState(alertasIniciais);
 
+    // Sincroniza o estado local sempre que o Inertia trouxer novos props
+    // (ex: ao trocar a estação selecionada no seletor)
+    useEffect(() => {
+        setEstacoes(estacoesIniciais);
+        setSerieItgu(serieInicial);
+        setAlertasRecentes(alertasIniciais);
+    }, [estacoesIniciais, serieInicial, alertasIniciais]);
+
     const atualizarDados = useCallback(async () => {
         try {
-            const response = await fetch('/api/dashboard/refresh', {
+            const params = estacaoSelecionada ? `?estacao_id=${estacaoSelecionada}` : '';
+            const response = await fetch(`/api/dashboard/refresh${params}`, {
                 headers: { Accept: 'application/json' },
             });
             if (!response.ok) return;
@@ -220,19 +250,38 @@ export default function Dashboard({ estacoes: estacoesIniciais, serieItgu: serie
         } catch (error) {
             console.error('Falha ao atualizar dashboard:', error);
         }
-    }, []);
+    }, [estacaoSelecionada]);
 
     useEffect(() => {
-        const intervalo = setInterval(atualizarDados, 30000); // 30 segundos
+        const intervalo = setInterval(atualizarDados, 30000);
         return () => clearInterval(intervalo);
     }, [atualizarDados]);
+
+    const handleSelecionarEstacao = (estacaoId) => {
+        router.get(
+            route('dashboard'),
+            estacaoId ? { estacao_id: estacaoId } : {},
+            { preserveState: true, preserveScroll: true }
+        );
+    };
+
+    const estacoesFiltradas = estacaoSelecionada
+        ? estacoes.filter((e) => e.id === estacaoSelecionada)
+        : estacoes;
 
     return (
         <AuthenticatedLayout
             header={
-                <h2 className="font-semibold text-xl text-gray-800 leading-tight">
-                    Dashboard — Monitoramento de Estações Meteorológicas
-                </h2>
+                <div className="flex justify-between items-center">
+                    <h2 className="font-semibold text-xl text-gray-800 leading-tight">
+                        Dashboard — Monitoramento de Estações Meteorológicas
+                    </h2>
+                    <SeletorEstacao
+                        estacoes={estacoes}
+                        estacaoSelecionada={estacaoSelecionada}
+                        onChange={handleSelecionarEstacao}
+                    />
+                </div>
             }
         >
             <Head title="Dashboard" />
@@ -240,8 +289,8 @@ export default function Dashboard({ estacoes: estacoesIniciais, serieItgu: serie
             <div className="py-12">
                 <div className="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {estacoes.length > 0 ? (
-                            estacoes.map((estacao) => (
+                        {estacoesFiltradas.length > 0 ? (
+                            estacoesFiltradas.map((estacao) => (
                                 <EstacaoCard key={estacao.id} estacao={estacao} />
                             ))
                         ) : (
@@ -255,7 +304,7 @@ export default function Dashboard({ estacoes: estacoesIniciais, serieItgu: serie
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <ListaAlertas alertas={alertasRecentes} />
-                        <MapaEstacoes estacoes={estacoes} />
+                        <MapaEstacoes estacoes={estacoesFiltradas} />
                     </div>
                 </div>
             </div>
