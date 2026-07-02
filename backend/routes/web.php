@@ -41,6 +41,8 @@ Route::middleware('auth')->group(function () {
         ->name('alertas.resolver');
     Route::post('/alertas/{alertaDisparado}/reabrir', [App\Http\Controllers\AlertaDisparadoController::class, 'reabrir'])
         ->name('alertas.reabrir');
+    Route::get('/documentacao/sensores', [App\Http\Controllers\DocumentacaoController::class, 'sensores'])
+        ->name('documentacao.sensores');
 });
 
 require __DIR__.'/auth.php';

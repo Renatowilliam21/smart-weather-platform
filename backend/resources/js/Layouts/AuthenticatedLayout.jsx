@@ -48,6 +48,12 @@ export default function AuthenticatedLayout({ header, children }) {
                                 >
                                     Histórico
                                 </NavLink>
+                                <NavLink
+                                    href={route('documentacao.sensores')}
+                                    active={route().current('documentacao.*')}
+                                >
+                                    Sensores
+                                </NavLink>
                             </div>
                         </div>
 
@@ -169,6 +175,12 @@ export default function AuthenticatedLayout({ header, children }) {
                             active={route().current('leituras.*')}
                         >
                             Histórico
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                            href={route('documentacao.sensores')}
+                            active={route().current('documentacao.*')}
+                        >
+                            Sensores
                         </ResponsiveNavLink>
                     </div>
 
