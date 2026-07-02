@@ -42,6 +42,12 @@ export default function AuthenticatedLayout({ header, children }) {
                                 >
                                     Alertas
                                 </NavLink>
+                                <NavLink
+                                    href={route('leituras.index')}
+                                    active={route().current('leituras.*')}
+                                >
+                                    Histórico
+                                </NavLink>
                             </div>
                         </div>
 
@@ -157,6 +163,12 @@ export default function AuthenticatedLayout({ header, children }) {
                             active={route().current('alertas-config.*')}
                         >
                             Alertas
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                            href={route('leituras.index')}
+                            active={route().current('leituras.*')}
+                        >
+                            Histórico
                         </ResponsiveNavLink>
                     </div>
 

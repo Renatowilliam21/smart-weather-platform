@@ -33,6 +33,9 @@ Route::middleware('auth')->group(function () {
     Route::resource('alertas-config', App\Http\Controllers\AlertaConfigController::class)
     ->parameters(['alertas-config' => 'alertaConfig'])
     ->except(['show']);
+
+    Route::get('/leituras', [App\Http\Controllers\LeituraController::class, 'index'])->name('leituras.index');
+    Route::get('/leituras/export', [App\Http\Controllers\LeituraController::class, 'export'])->name('leituras.export');
 });
 
 require __DIR__.'/auth.php';
