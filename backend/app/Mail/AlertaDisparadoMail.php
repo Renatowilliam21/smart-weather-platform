@@ -2,10 +2,9 @@
 
 namespace App\Mail;
 
+use App\Models\AlertaDisparado;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
@@ -14,41 +13,23 @@ class AlertaDisparadoMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    /**
-     * Create a new message instance.
-     */
-    public function __construct()
-    {
-        //
-    }
+    public function __construct(
+        public AlertaDisparado $alertaDisparado
+    ) {}
 
-    /**
-     * Get the message envelope.
-     */
     public function envelope(): Envelope
     {
+        $estacao = $this->alertaDisparado->alertaConfig->estacao->nome ?? 'Estação desconhecida';
+
         return new Envelope(
-            subject: 'Alerta Disparado Mail',
+            subject: "⚠ Alerta disparado — {$estacao}",
         );
     }
 
-    /**
-     * Get the message content definition.
-     */
     public function content(): Content
     {
         return new Content(
-            view: 'view.name',
+            view: 'emails.alerta-disparado',
         );
-    }
-
-    /**
-     * Get the attachments for the message.
-     *
-     * @return array<int, Attachment>
-     */
-    public function attachments(): array
-    {
-        return [];
     }
 }

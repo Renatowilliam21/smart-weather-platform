@@ -1,0 +1,52 @@
+[90m= [39m[34;4mIlluminate\Database\Eloquent\Collection[39;24m {#8051
+    [34mall[39m: [
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8063
+        [34mid[39m: [35m3[39m,
+        [34malerta_config_id[39m: [35m3[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8064
+        [34mid[39m: [35m5[39m,
+        [34malerta_config_id[39m: [35m3[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8061
+        [34mid[39m: [35m6[39m,
+        [34malerta_config_id[39m: [35m3[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8060
+        [34mid[39m: [35m7[39m,
+        [34malerta_config_id[39m: [35m3[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8059
+        [34mid[39m: [35m8[39m,
+        [34malerta_config_id[39m: [35m3[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8058
+        [34mid[39m: [35m9[39m,
+        [34malerta_config_id[39m: [35m4[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8057
+        [34mid[39m: [35m10[39m,
+        [34malerta_config_id[39m: [35m4[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8056
+        [34mid[39m: [35m11[39m,
+        [34malerta_config_id[39m: [35m4[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8055
+        [34mid[39m: [35m12[39m,
+        [34malerta_config_id[39m: [35m4[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8054
+        [34mid[39m: [35m13[39m,
+        [34malerta_config_id[39m: [35m4[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8053
+        [34mid[39m: [35m14[39m,
+        [34malerta_config_id[39m: [35m4[39m,
+      },
+      [34;4mApp\Models\AlertaDisparado[39;24m {#8052
+        [34mid[39m: [35m15[39m,
+        [34malerta_config_id[39m: [35m4[39m,
+      },
+    ],
+  }
