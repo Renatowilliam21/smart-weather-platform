@@ -142,31 +142,48 @@ function GraficoItgu({ serieItgu, estacoes }) {
     );
 }
 
-function ListaAlertas({ alertas }) {
+function ListaAlertas({ alertas, onResolver, onReabrir }) {
     return (
         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
             <h3 className="font-semibold text-lg text-gray-800 mb-4">Alertas Recentes</h3>
             {alertas.length > 0 ? (
                 <ul className="divide-y divide-gray-100">
                     {alertas.map((alerta) => (
-                        <li key={alerta.id} className="py-3 flex justify-between items-center">
-                            <div>
-                                <p className="text-sm font-medium text-gray-800">
+                        <li key={alerta.id} className="py-3 flex justify-between items-center gap-3">
+                            <div className="min-w-0">
+                                <p className="text-sm font-medium text-gray-800 truncate">
                                     {alerta.estacao_nome} — {alerta.parametro}
                                 </p>
                                 <p className="text-xs text-gray-500">
                                     Valor lido: {alerta.valor_lido} (limite: {alerta.valor_limite})
                                 </p>
                             </div>
-                            <span
-                                className={`px-2 py-1 rounded text-xs font-medium ${
-                                    alerta.resolvido
-                                        ? 'bg-green-100 text-green-800'
-                                        : 'bg-red-100 text-red-800'
-                                }`}
-                            >
-                                {alerta.resolvido ? 'Resolvido' : 'Ativo'}
-                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <span
+                                    className={`px-2 py-1 rounded text-xs font-medium ${
+                                        alerta.resolvido
+                                            ? 'bg-green-100 text-green-800'
+                                            : 'bg-red-100 text-red-800'
+                                    }`}
+                                >
+                                    {alerta.resolvido ? 'Resolvido' : 'Ativo'}
+                                </span>
+                                {alerta.resolvido ? (
+                                    <button
+                                        onClick={() => onReabrir(alerta.id)}
+                                        className="text-xs text-gray-500 hover:underline whitespace-nowrap"
+                                    >
+                                        Reabrir
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => onResolver(alerta.id)}
+                                        className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                                    >
+                                        Resolver
+                                    </button>
+                                )}
+                            </div>
                         </li>
                     ))}
                 </ul>
@@ -228,8 +245,6 @@ export default function Dashboard({
     const [serieItgu, setSerieItgu] = useState(serieInicial);
     const [alertasRecentes, setAlertasRecentes] = useState(alertasIniciais);
 
-    // Sincroniza o estado local sempre que o Inertia trouxer novos props
-    // (ex: ao trocar a estação selecionada no seletor)
     useEffect(() => {
         setEstacoes(estacoesIniciais);
         setSerieItgu(serieInicial);
@@ -263,6 +278,30 @@ export default function Dashboard({
             estacaoId ? { estacao_id: estacaoId } : {},
             { preserveState: true, preserveScroll: true }
         );
+    };
+
+    const handleResolverAlerta = (alertaId) => {
+        router.post(route('alertas.resolver', alertaId), {}, {
+            preserveState: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                setAlertasRecentes((atual) =>
+                    atual.map((a) => (a.id === alertaId ? { ...a, resolvido: true } : a))
+                );
+            },
+        });
+    };
+
+    const handleReabrirAlerta = (alertaId) => {
+        router.post(route('alertas.reabrir', alertaId), {}, {
+            preserveState: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                setAlertasRecentes((atual) =>
+                    atual.map((a) => (a.id === alertaId ? { ...a, resolvido: false } : a))
+                );
+            },
+        });
     };
 
     const estacoesFiltradas = estacaoSelecionada
@@ -303,7 +342,11 @@ export default function Dashboard({
                     <GraficoItgu serieItgu={serieItgu} estacoes={estacoes} />
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <ListaAlertas alertas={alertasRecentes} />
+                        <ListaAlertas
+                            alertas={alertasRecentes}
+                            onResolver={handleResolverAlerta}
+                            onReabrir={handleReabrirAlerta}
+                        />
                         <MapaEstacoes estacoes={estacoesFiltradas} />
                     </div>
                 </div>

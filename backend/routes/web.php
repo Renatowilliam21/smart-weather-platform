@@ -36,6 +36,11 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/leituras', [App\Http\Controllers\LeituraController::class, 'index'])->name('leituras.index');
     Route::get('/leituras/export', [App\Http\Controllers\LeituraController::class, 'export'])->name('leituras.export');
+
+    Route::post('/alertas/{alertaDisparado}/resolver', [App\Http\Controllers\AlertaDisparadoController::class, 'resolver'])
+        ->name('alertas.resolver');
+    Route::post('/alertas/{alertaDisparado}/reabrir', [App\Http\Controllers\AlertaDisparadoController::class, 'reabrir'])
+        ->name('alertas.reabrir');
 });
 
 require __DIR__.'/auth.php';
