@@ -22,6 +22,7 @@ class StoreLeituraRequest extends FormRequest
             'pressao' => 'nullable|numeric',
             'altitude' => 'nullable|numeric',
             'indice_uv' => 'nullable|numeric',
+            'luminosidade' => 'nullable|numeric|min:0|max:100',
             'co2_ppm' => 'nullable|numeric',
             'tvoc_ppb' => 'nullable|numeric',
             'chuva_mm' => 'nullable|numeric',
@@ -33,6 +34,8 @@ class StoreLeituraRequest extends FormRequest
             'tensao_bateria' => 'nullable|numeric',
             'itgu' => 'nullable|numeric',
             'itgu_classificacao' => 'nullable|string|max:20',
+            'itu' => 'nullable|numeric',
+            'itu_classificacao' => 'nullable|string|max:20',
             'tipo_agregacao' => 'nullable|in:amostra,agregado',
             'registrado_em' => 'nullable|date',
         ];

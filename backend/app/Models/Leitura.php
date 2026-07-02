@@ -31,6 +31,9 @@ class Leitura extends Model
         'tensao_bateria',
         'itgu',
         'itgu_classificacao',
+        'itu',
+        'itu_classificacao',
+        'luminosidade',
         'tipo_agregacao',
         'registrado_em',
     ];
@@ -54,6 +57,8 @@ class Leitura extends Model
         'solo_condutividade' => 'decimal:4',
         'tensao_bateria' => 'decimal:2',
         'itgu' => 'decimal:2',
+        'itu' => 'decimal:2',
+        'luminosidade' => 'decimal:2',
     ];
 
     public function estacao(): BelongsTo
