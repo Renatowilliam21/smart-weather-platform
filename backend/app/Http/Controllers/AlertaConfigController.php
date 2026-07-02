@@ -18,6 +18,7 @@ class AlertaConfigController extends Controller
         'umidade_ar' => 'Umidade do Ar',
         'pressao' => 'Pressão',
         'indice_uv' => 'Índice UV',
+        'luminosidade' => 'Luminosidade',
         'co2_ppm' => 'CO2 (ppm)',
         'tvoc_ppb' => 'TVOC (ppb)',
         'chuva_mm' => 'Chuva (mm)',
@@ -26,6 +27,7 @@ class AlertaConfigController extends Controller
         'solo_temperatura' => 'Temperatura do Solo',
         'tensao_bateria' => 'Tensão da Bateria',
         'itgu' => 'ITGU',
+        'itu' => 'ITU',
     ];
 
     public function index(): Response
