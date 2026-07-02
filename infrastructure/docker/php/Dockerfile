@@ -36,6 +36,8 @@ RUN docker-php-ext-install \
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
+COPY infrastructure/docker/php/www.conf /usr/local/etc/php-fpm.d/www.conf
+
 WORKDIR /var/www
 
 CMD ["php-fpm"]
