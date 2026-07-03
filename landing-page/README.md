@@ -67,3 +67,4 @@ landing-page/
 - FAQ construído com `<details>`/`<summary>` (navegável por teclado e leitor de tela
   sem JavaScript adicional)
 - Animações respeitam `prefers-reduced-motion`
+
