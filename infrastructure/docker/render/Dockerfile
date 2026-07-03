@@ -33,7 +33,8 @@ RUN composer install --no-dev --no-scripts --no-autoloader --optimize-autoloader
 COPY backend/ .
 COPY --from=frontend-build /app/public/build ./public/build
 
-RUN composer dump-autoload --optimize \
+RUN mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/testing storage/framework/views storage/logs bootstrap/cache \
+    && composer dump-autoload --optimize \
     && chown -R www-data:www-data /var/www \
     && chmod -R 775 storage bootstrap/cache
 
