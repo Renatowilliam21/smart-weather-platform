@@ -1,0 +1,60 @@
+databases:
+  - name: smart-weather-db
+    databaseName: weather
+    user: weather
+    plan: free
+
+services:
+  - type: web
+    name: smart-weather-platform
+    runtime: docker
+    dockerfilePath: ./infrastructure/docker/render/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /up
+    envVars:
+      - key: APP_NAME
+        value: "Smart Weather Platform"
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_KEY
+        generateValue: true
+      - key: APP_URL
+        fromService:
+          type: web
+          name: smart-weather-platform
+          property: hostport
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_HOST
+        fromDatabase:
+          name: smart-weather-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: smart-weather-db
+          property: port
+      - key: DB_DATABASE
+        fromDatabase:
+          name: smart-weather-db
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: smart-weather-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: smart-weather-db
+          property: password
+      - key: SESSION_DRIVER
+        value: database
+      - key: CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: MAIL_MAILER
+        value: log
