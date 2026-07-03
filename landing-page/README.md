@@ -68,3 +68,4 @@ landing-page/
   sem JavaScript adicional)
 - Animações respeitam `prefers-reduced-motion`
 
+
