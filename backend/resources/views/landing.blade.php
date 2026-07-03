@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Smart Weather Platform — Monitoramento climático do semiárido</title>
+	<meta name="description" content="Estações meteorológicas IoT (ESP32) para monitoramento de conforto térmico e microclima no semiárido cearense. Dashboard em tempo real, alertas e dados abertos.">
+
+	<!-- Favicon (marca da estação, em SVG inline) -->
+	<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314110D'/%3E%3Cpath d='M16 6v10' stroke='%23E7B23B' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='5' r='2' fill='%23E7B23B'/%3E%3Cpath d='M10 14a8 8 0 0112 0' stroke='%238FAE9B' stroke-width='2' stroke-linecap='round' fill='none'/%3E%3Cpath d='M7 18a12 12 0 0118 0' stroke='%238FAE9B' stroke-width='1.5' stroke-linecap='round' fill='none' opacity='.6'/%3E%3Cpath d='M9 27l3-6h8l3 6z' fill='%23B34A16'/%3E%3C/svg%3E">
+
+	<!-- Fontes: Space Grotesk (display), IBM Plex Sans (corpo), IBM Plex Mono (leituras/dados) -->
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+	<!-- Bootstrap 5.3.7 (mesma versão utilizada em aula) -->
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-LN+7fdVzj6u52u30Kp6M/trliBMCMKTyK833zpbD+pXdCLuTusPj697FH4R/5mcr" crossorigin="anonymous">
+
+	<!-- Bootstrap Icons -->
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+
+	<!-- Estilos próprios (compilado a partir de css/style.scss) -->
+	<link rel="stylesheet" href="{{ asset('landing/css/style.css') }}">
+</head>
+<body>
+
+	<a class="skip-link" href="#conteudo">Pular para o conteúdo</a>
+
+	<!-- ==================== MENU PRINCIPAL ==================== -->
+	<header>
+		<nav class="navbar navbar-expand-lg navbar-dark fixed-top" id="menuPrincipal">
+			<div class="container">
+				<a class="navbar-brand" href="#topo">
+					<span class="marca">
+						<svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+							<rect width="32" height="32" rx="7" fill="#1F2420"/>
+							<path d="M16 7v9" stroke="#E7B23B" stroke-width="2" stroke-linecap="round"/>
+							<circle cx="16" cy="6" r="1.8" fill="#E7B23B"/>
+							<path d="M10.5 15a7.5 7.5 0 0111 0" stroke="#8FAE9B" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+							<path d="M7.5 18.5a11.5 11.5 0 0117 0" stroke="#8FAE9B" stroke-width="1.3" stroke-linecap="round" fill="none" opacity=".55"/>
+							<path d="M9 26l3-5.5h8l3 5.5z" fill="#B34A16"/>
+						</svg>
+					</span>
+					<span class="marca-texto">
+						<strong>SMART&nbsp;WEATHER</strong>
+						<small>PLATFORM · ESTAÇÕES&nbsp;IoT</small>
+					</span>
+				</a>
+
+				<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu" aria-controls="navMenu" aria-expanded="false" aria-label="Abrir menu de navegação">
+					<span class="navbar-toggler-icon"></span>
+				</button>
+
+				<div class="collapse navbar-collapse" id="navMenu">
+					<ul class="navbar-nav ms-auto align-items-lg-center">
+						<li class="nav-item"><a class="nav-link" href="#sobre">Sobre</a></li>
+						<li class="nav-item"><a class="nav-link" href="#funcionalidades">Funcionalidades</a></li>
+						<li class="nav-item"><a class="nav-link" href="#depoimentos">Depoimentos</a></li>
+						<li class="nav-item"><a class="nav-link" href="#faq">FAQ</a></li>
+						<li class="nav-item"><a class="nav-link" href="#contato">Contato</a></li>
+						<li class="nav-item ms-lg-3">
+							<a class="btn btn-ghost btn-sm" href="https://github.com/Renatowilliam21/smart-weather-platform" target="_blank" rel="noopener">
+								<i class="bi bi-github" aria-hidden="true"></i> Repositório
+							</a>
+						</li>
+						<li class="nav-item ms-lg-2">
+							<a class="btn btn-cta btn-sm" href="{{ route('login') }}">
+								<i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Entrar no Sistema
+							</a>
+						</li>
+					</ul>
+				</div>
+			</div>
+		</nav>
+	</header>
+
+	<main id="conteudo">
+
+		<!-- ==================== HERO SECTION ==================== -->
+		<section id="topo" class="hero">
+			<div class="hero-bg" aria-hidden="true"></div>
+			<div class="container hero-grid">
+				<div class="hero-copy">
+					<p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Estação ativa · Boa Viagem, CE</p>
+					<h1>Monitoramento climático de precisão para o <span>semiárido</span> cearense.</h1>
+					<p class="hero-sub">
+						Estações meteorológicas com ESP32 medem temperatura, umidade, radiação UV e luminosidade
+						em campo, calculam os índices de conforto térmico ITGU e ITU em tempo real e disparam
+						alertas antes que o calor vire problema para pessoas, rebanho e lavoura.
+					</p>
+					<div class="hero-actions">
+						<a href="#funcionalidades" class="btn btn-cta btn-lg">Ver funcionalidades</a>
+						<a href="#sobre" class="btn btn-ghost btn-lg">Como funciona</a>
+					</div>
+				</div>
+
+				<div class="hero-panel" role="img" aria-label="Painel simulado com leituras em tempo real da estação: temperatura do ar 27.4 graus, umidade relativa 61 por cento, índice ITGU 74.2 em nível de alerta, índice UV 6.8">
+					<div class="panel-head">
+						<span class="status-dot" aria-hidden="true"></span> ESTAÇÃO ONLINE
+						<span class="panel-clock" data-relogio>--:--:--</span>
+					</div>
+					<div class="panel-grid">
+						<div class="readout">
+							<span class="readout-label"><i class="bi bi-thermometer-half"></i> Temp. ar</span>
+							<span class="readout-valor">27.4<small>°C</small></span>
+						</div>
+						<div class="readout">
+							<span class="readout-label"><i class="bi bi-droplet-half"></i> Umidade</span>
+							<span class="readout-valor">61<small>%</small></span>
+						</div>
+						<div class="readout readout--alerta">
+							<span class="readout-label"><i class="bi bi-graph-up"></i> ITGU</span>
+							<span class="readout-valor">74.2<small>· alerta</small></span>
+						</div>
+						<div class="readout">
+							<span class="readout-label"><i class="bi bi-brightness-high"></i> Índice UV</span>
+							<span class="readout-valor">6.8<small>mod.</small></span>
+						</div>
+					</div>
+					<svg class="panel-sparkline" viewBox="0 0 260 46" preserveAspectRatio="none" aria-hidden="true">
+						<polyline points="0,30 20,28 40,32 60,22 80,25 100,15 120,18 140,10 160,14 180,8 200,12 220,6 240,10 260,4" />
+					</svg>
+				</div>
+			</div>
+		</section>
+
+		<!-- ==================== SOBRE ==================== -->
+		<section id="sobre" class="secao secao--clara">
+			<div class="container">
+				<div class="row gy-5 align-items-start">
+					<div class="col-lg-5">
+						<p class="eyebrow eyebrow--escuro">Sobre o projeto</p>
+						<h2>Dados de campo, não estimativas de satélite.</h2>
+						<p class="texto-lead">
+							A maioria das previsões meteorológicas usa dados regionais, distantes da realidade de
+							um curral, um cercado de abelhas ou uma lavoura específica. O Smart Weather Platform
+							nasceu para resolver isso: estações físicas de baixo custo, instaladas onde o dado
+							realmente importa, alimentando um painel que qualquer produtor, pesquisador ou gestor
+							consegue interpretar em segundos.
+						</p>
+						<p class="texto-lead">
+							O sistema calcula automaticamente o <strong>ITGU</strong> (Índice de Temperatura de
+							Globo e Umidade) e o <strong>ITU</strong> (Índice de Temperatura e Umidade), duas
+							métricas consolidadas de conforto térmico usadas em zootecnia e agricultura de
+							precisão — e avisa por e-mail assim que um limite configurado é ultrapassado.
+						</p>
+					</div>
+
+					<div class="col-lg-7">
+						<ol class="fluxo">
+							<li>
+								<span class="fluxo-num">01</span>
+								<div>
+									<h3>Sensores em campo</h3>
+									<p>DHT22 (globo negro), BME280, sensor UV e LDR capturam o microclima real, minuto a minuto.</p>
+								</div>
+							</li>
+							<li>
+								<span class="fluxo-num">02</span>
+								<div>
+									<h3>Transmissão via Wi-Fi</h3>
+									<p>O ESP32 envia cada leitura por HTTPS para a API, autenticado por token exclusivo da estação.</p>
+								</div>
+							</li>
+							<li>
+								<span class="fluxo-num">03</span>
+								<div>
+									<h3>Processamento no servidor</h3>
+									<p>Laravel calcula ITGU/ITU e verifica, em milissegundos, se algum alerta configurado foi violado.</p>
+								</div>
+							</li>
+							<li>
+								<span class="fluxo-num">04</span>
+								<div>
+									<h3>Visualização &amp; alerta</h3>
+									<p>Dashboard atualizado a cada 30s, mapa das estações e notificação por e-mail em tempo real.</p>
+								</div>
+							</li>
+						</ol>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ==================== FUNCIONALIDADES / CARDS ==================== -->
+		<section id="funcionalidades" class="secao secao--escura">
+			<div class="container">
+				<p class="eyebrow">O que a estação mede</p>
+				<h2>Seis leituras, dois índices calculados.</h2>
+				<p class="texto-lead texto-lead--claro">
+					Cada card abaixo é montado dinamicamente em JavaScript a partir de um único array de dados —
+					adicionar um novo sensor ao painel é adicionar um objeto à lista.
+				</p>
+
+				<div id="grade-sensores" class="grade-sensores" aria-live="polite">
+					<!-- Preenchido via js/sensores.js -->
+				</div>
+			</div>
+		</section>
+
+		<!-- ==================== DEPOIMENTOS ==================== -->
+		<section id="depoimentos" class="secao secao--clara">
+			<div class="container">
+				<p class="eyebrow eyebrow--escuro">Depoimentos</p>
+				<h2>Quem usaria uma estação dessas.</h2>
+				<p class="texto-lead">Avaliações simuladas, escritas para ilustrar casos de uso reais do sistema.</p>
+
+				<div class="row g-4 mt-2">
+					<div class="col-md-4">
+						<article class="depoimento">
+							<i class="bi bi-quote" aria-hidden="true"></i>
+							<p>“Consigo cruzar o ITGU com o comportamento do rebanho no mesmo dia. Antes eu dependia
+							de previsão regional que não tinha nada a ver com o que acontecia no curral.”</p>
+							<footer>
+								<strong>Marcos Farias</strong>
+								<span>Produtor rural, Boa Viagem–CE</span>
+							</footer>
+						</article>
+					</div>
+					<div class="col-md-4">
+						<article class="depoimento">
+							<i class="bi bi-quote" aria-hidden="true"></i>
+							<p>“Usei os dados de três estações para uma pesquisa sobre conforto térmico de abelhas
+							no semiárido. O histórico exportável em CSV economizou semanas de tabulação manual.”</p>
+							<footer>
+								<strong>Dra. Iasmim Correia</strong>
+								<span>Pesquisadora em Agropecuária de Precisão</span>
+							</footer>
+						</article>
+					</div>
+					<div class="col-md-4">
+						<article class="depoimento">
+							<i class="bi bi-quote" aria-hidden="true"></i>
+							<p>“Como material didático é excelente: os alunos veem sensor, API e dashboard
+							conversando de verdade, com dados que eles mesmos coletaram em campo.”</p>
+							<footer>
+								<strong>Prof. Daniel Santos</strong>
+								<span>Instrutor de Desenvolvimento Web</span>
+							</footer>
+						</article>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ==================== FAQ ==================== -->
+		<section id="faq" class="secao secao--escura">
+			<div class="container">
+				<div class="row">
+					<div class="col-lg-5">
+						<p class="eyebrow">Perguntas frequentes</p>
+						<h2>Antes de instalar a primeira estação.</h2>
+						<p class="texto-lead texto-lead--claro">
+							Não achou sua dúvida aqui? Fale com a gente na seção de contato.
+						</p>
+					</div>
+					<div class="col-lg-7">
+						<div class="acordeao">
+							<details open>
+								<summary>O que são os índices ITGU e ITU, na prática?</summary>
+								<div class="acordeao-conteudo">
+									<p>São métricas de conforto térmico. O <strong>ITGU</strong> usa a temperatura de
+									um globo negro exposto ao sol, então reflete a carga de radiação solar real. O
+									<strong>ITU</strong> usa a temperatura do ar à sombra. Comparar os dois mostra
+									quanto do calor percebido vem do sol direto — não só da temperatura ambiente.</p>
+								</div>
+							</details>
+							<details>
+								<summary>Preciso de rede elétrica ou internet cabeada no local?</summary>
+								<div class="acordeao-conteudo">
+									<p>Não. A estação se conecta por Wi-Fi local e pode ser alimentada por bateria
+									com painel solar. O único requisito é sinal de Wi-Fi ao alcance do ponto de
+									instalação.</p>
+								</div>
+							</details>
+							<details>
+								<summary>Os dados ficam disponíveis em tempo real?</summary>
+								<div class="acordeao-conteudo">
+									<p>O dashboard atualiza automaticamente a cada 30 segundos, e um e-mail é
+									disparado assim que uma leitura nova ultrapassa um limite configurado —
+									sem repetir o aviso enquanto o alerta continuar ativo.</p>
+								</div>
+							</details>
+							<details>
+								<summary>Dá para monitorar mais de uma estação ao mesmo tempo?</summary>
+								<div class="acordeao-conteudo">
+									<p>Sim. O painel tem um seletor de estação: visualize todas juntas no mapa e no
+									gráfico, ou filtre por uma estação específica com um clique.</p>
+								</div>
+							</details>
+							<details>
+								<summary>O sistema é de código aberto?</summary>
+								<div class="acordeao-conteudo">
+									<p>Sim — backend, frontend e firmware do ESP32 estão publicados no
+									<a href="https://github.com/Renatowilliam21/smart-weather-platform" target="_blank" rel="noopener">repositório do projeto</a>.</p>
+								</div>
+							</details>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ==================== CONTATO ==================== -->
+		<section id="contato" class="secao secao--clara">
+			<div class="container">
+				<div class="row gy-5">
+					<div class="col-lg-5">
+						<p class="eyebrow eyebrow--escuro">Contato</p>
+						<h2>Quer instalar uma estação na sua área?</h2>
+						<p class="texto-lead">
+							Conte um pouco sobre o local de instalação e o que você precisa monitorar — retornamos
+							por e-mail.
+						</p>
+
+						<ul class="lista-contato">
+							<li><i class="bi bi-geo-alt"></i> Boa Viagem, Ceará</li>
+							<li><i class="bi bi-envelope"></i> <a href="mailto:renatowilliam21@gmail.com">renatowilliam21@gmail.com</a></li>
+							<li><i class="bi bi-github"></i>
+								<a href="https://github.com/Renatowilliam21/smart-weather-platform" target="_blank" rel="noopener">github.com/Renatowilliam21/smart-weather-platform</a>
+							</li>
+						</ul>
+					</div>
+
+					<div class="col-lg-7">
+						<form class="formulario" novalidate>
+							<div class="mb-3">
+								<label for="campo-nome" class="form-label">Nome</label>
+								<input type="text" class="form-control" id="campo-nome" name="nome" placeholder="Como podemos te chamar?" required>
+							</div>
+							<div class="mb-3">
+								<label for="campo-email" class="form-label">E-mail</label>
+								<input type="email" class="form-control" id="campo-email" name="email" placeholder="voce@exemplo.com" required>
+							</div>
+							<div class="mb-3">
+								<label for="campo-mensagem" class="form-label">Mensagem</label>
+								<textarea class="form-control" id="campo-mensagem" name="mensagem" rows="4" placeholder="Local de instalação, o que deseja monitorar, etc." required></textarea>
+							</div>
+							<button type="submit" class="btn btn-cta btn-lg w-100 w-sm-auto">Enviar mensagem</button>
+							<p class="formulario-nota" data-nota hidden>
+								<i class="bi bi-check-circle"></i> Formulário de demonstração — nenhum dado foi enviado.
+							</p>
+						</form>
+					</div>
+				</div>
+			</div>
+		</section>
+
+	</main>
+
+	<!-- ==================== RODAPÉ ==================== -->
+	<footer class="rodape">
+		<div class="container">
+			<div class="rodape-grade">
+				<div class="rodape-marca">
+					<span class="marca-texto">
+						<strong>SMART&nbsp;WEATHER</strong>
+						<small>PLATFORM · ESTAÇÕES&nbsp;IoT</small>
+					</span>
+					<p>Monitoramento de microclima e conforto térmico para o semiárido, do sensor ao dashboard.</p>
+				</div>
+
+				<div class="rodape-coluna">
+					<h4>Navegação</h4>
+					<ul>
+						<li><a href="#sobre">Sobre</a></li>
+						<li><a href="#funcionalidades">Funcionalidades</a></li>
+						<li><a href="#depoimentos">Depoimentos</a></li>
+						<li><a href="#faq">FAQ</a></li>
+					</ul>
+				</div>
+
+				<div class="rodape-coluna">
+					<h4>Projeto</h4>
+					<ul>
+						<li><a href="https://github.com/Renatowilliam21/smart-weather-platform" target="_blank" rel="noopener">Repositório no GitHub</a></li>
+						<li><a href="#contato">Solicitar instalação</a></li>
+					</ul>
+				</div>
+
+				<div class="rodape-coluna">
+					<h4>Stack</h4>
+					<ul class="rodape-stack">
+						<li>Laravel + Inertia</li>
+						<li>React</li>
+						<li>ESP32 (C++)</li>
+					</ul>
+				</div>
+			</div>
+
+			<div class="rodape-base">
+				<p>&copy; 2026 Smart Weather Platform. Projeto pessoal de pesquisa e desenvolvimento aplicado — Boa Viagem, Ceará.</p>
+				<a href="#topo" class="rodape-topo">Voltar ao topo <i class="bi bi-arrow-up"></i></a>
+			</div>
+		</div>
+	</footer>
+
+	<!-- Bootstrap Bundle (Popper incluso) -->
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js" integrity="sha384-ndDqU0Gzau9qJ1lfW4pNLlhNTkCfHzAVBReH9diLvGRem5+R9g2FzA8ZGN954O5Q" crossorigin="anonymous"></script>
+
+	<script src="{{ asset('landing/js/sensores.js') }}"></script>
+	<script src="{{ asset('landing/js/main.js') }}"></script>
+</body>
+</html>
