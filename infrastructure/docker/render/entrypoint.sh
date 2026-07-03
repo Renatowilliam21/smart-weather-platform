@@ -8,6 +8,7 @@ sed "s/__PORT__/${PORT}/g" /etc/nginx/nginx.conf.template > /etc/nginx/nginx.con
 cd /var/www
 
 php artisan config:clear
+php artisan migrate --force
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
