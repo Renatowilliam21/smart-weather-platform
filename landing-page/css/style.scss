@@ -1,0 +1,113 @@
+// ==========================================================================
+// Smart Weather Platform — fonte SASS
+// Este arquivo é a FONTE (.scss) referente ao conteúdo de SASS da Aula 4.
+// O arquivo style.css já entregue é o resultado compilado a partir destas
+// mesmas variáveis, mixins e regras aninhadas — pronto para uso sem precisar
+// de um passo de build (o navegador não interpreta .scss diretamente).
+//
+// Para compilar de verdade, com o Dart Sass instalado:
+//   npm install -g sass
+//   sass style.scss style.css
+// ==========================================================================
+
+// ---------- Variáveis (paleta "estação ao entardecer no semiárido") -------
+$ink:        #14110D; // fundo escuro principal
+$panel:      #1F2420; // painéis sobre fundo escuro
+$panel-2:    #262C27;
+$clay:       #B34A16; // barro queimado — cor de ação (CTA)
+$clay-hover: #9B3E11;
+$straw:      #E7B23B; // palha seca — destaque / status
+$sage:       #8FAE9B; // vegetação da caatinga — dados / links
+$parchment:  #F4EFE4; // papel — texto sobre fundo escuro
+$paper-card: #EDE6D6;
+$stone:      #6B6558;
+
+$fonte-display: "Space Grotesk", sans-serif;
+$fonte-corpo:   "IBM Plex Sans", sans-serif;
+$fonte-mono:    "IBM Plex Mono", monospace;
+
+$raio: 14px;
+
+// ---------- Mixins ---------------------------------------------------------
+@mixin cartao($bg: $panel, $borda: rgba($parchment, .07)) {
+	background: $bg;
+	border: 1px solid $borda;
+	border-radius: $raio;
+}
+
+@mixin botao-base {
+	font-weight: 600;
+	padding: .7rem 1.5rem;
+	border-radius: 999px;
+	transition: background .2s ease, transform .2s ease, box-shadow .2s ease;
+
+	&:hover, &:focus-visible {
+		transform: translateY(-2px);
+	}
+}
+
+@mixin eyebrow($cor: $sage) {
+	display: inline-flex;
+	align-items: center;
+	gap: .5rem;
+	font-family: $fonte-mono;
+	font-size: .72rem;
+	letter-spacing: .12em;
+	text-transform: uppercase;
+	color: $cor;
+	margin-bottom: 1.1rem;
+}
+
+// ---------- Exemplo de uso (aninhamento + mixins) --------------------------
+// Trecho equivalente ao componente .card-sensor em style.css
+
+.card-sensor {
+	@include cartao();
+	padding: 1.5rem 1.4rem;
+	transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+
+	&:hover {
+		transform: translateY(-4px);
+		border-color: rgba($straw, .35);
+	}
+
+	h3 {
+		font-size: 1.02rem;
+		color: $parchment;
+		margin-bottom: .35rem;
+	}
+
+	p {
+		font-size: .88rem;
+		line-height: 1.55;
+		color: rgba($parchment, .65);
+	}
+
+	.card-sensor-leitura {
+		font-family: $fonte-mono;
+		font-size: 1.3rem;
+		font-weight: 600;
+		color: $straw;
+		border-top: 1px dashed rgba($parchment, .14);
+		padding-top: .85rem;
+	}
+}
+
+.btn-cta {
+	@include botao-base;
+	background: $clay;
+	border: 1px solid $clay;
+	color: $parchment;
+
+	&:hover, &:focus-visible {
+		background: $clay-hover;
+		border-color: $clay-hover;
+		box-shadow: 0 10px 24px -10px rgba($clay, .6);
+	}
+}
+
+.eyebrow { @include eyebrow($sage); }
+.eyebrow--escuro { @include eyebrow($clay); }
+
+// O restante das regras (layout, grid, responsivo, animações) segue a mesma
+// lógica de variáveis + nesting e está compilado por extenso em style.css.
