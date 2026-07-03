@@ -5,6 +5,8 @@ COPY backend/package*.json ./
 RUN npm ci
 COPY backend/resources ./resources
 COPY backend/vite.config.js ./
+COPY backend/tailwind.config.js ./
+COPY backend/postcss.config.js ./
 COPY backend/public ./public
 RUN npm run build
 
