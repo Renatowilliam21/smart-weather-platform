@@ -12,6 +12,7 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "predis/predis": "*",
+        "sentry/sentry-laravel": "^4.26",
         "symfony/brevo-mailer": "^7.4",
         "symfony/http-client": "^7.4",
         "tightenco/ziggy": "^2.0"
