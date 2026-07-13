@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Estacao;
 use App\Models\AlertaDisparado;
+use App\Models\EstacaoOfflineEvento;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -35,12 +36,16 @@ class DashboardController extends Controller
 
     private function estacoesComUltimaLeitura()
     {
+        $idsOffline = EstacaoOfflineEvento::where('resolvido', false)
+            ->pluck('estacao_id')
+            ->toArray();
+
         return Estacao::where('ativo', true)
             ->with(['leituras' => function ($query) {
                 $query->latest('registrado_em')->limit(1);
             }])
             ->get()
-            ->map(function ($estacao) {
+            ->map(function ($estacao) use ($idsOffline) {
                 $ultima = $estacao->leituras->first();
 
                 return [
@@ -49,6 +54,7 @@ class DashboardController extends Controller
                     'localizacao' => $estacao->localizacao,
                     'latitude' => $estacao->latitude,
                     'longitude' => $estacao->longitude,
+                    'offline' => in_array($estacao->id, $idsOffline),
                     'ultima_leitura' => $ultima ? [
                         'temperatura_ar' => $ultima->temperatura_ar,
                         'umidade_ar' => $ultima->umidade_ar,

@@ -22,6 +22,19 @@ services:
     networks:
       - weather-network
 
+  scheduler:
+    image: smart-weather-platform-app
+    container_name: swp_scheduler
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./backend:/var/www
+    depends_on:
+      - app
+    entrypoint: ["sh", "-c", "while true; do php artisan schedule:run; sleep 60; done"]
+    networks:
+      - weather-network
+
   nginx:
     image: nginx:1.28-alpine
 

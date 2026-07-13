@@ -45,10 +45,17 @@ function EstacaoCard({ estacao }) {
         : 'bg-gray-100 text-gray-800';
 
     return (
-        <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
+        <div className={`bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 ${estacao.offline ? "ring-2 ring-red-300" : ""}`}>
             <div className="flex justify-between items-start mb-4">
                 <div>
-                    <h3 className="font-semibold text-lg text-gray-800">{estacao.nome}</h3>
+                    <h3 className="font-semibold text-lg text-gray-800 flex items-center gap-2">
+                        {estacao.nome}
+                        {estacao.offline && (
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                                Offline
+                            </span>
+                        )}
+                    </h3>
                     <p className="text-sm text-gray-500">{estacao.localizacao}</p>
                 </div>
                 {leitura?.itgu_classificacao && (
