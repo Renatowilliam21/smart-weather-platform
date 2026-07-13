@@ -38,6 +38,10 @@ Route::middleware('auth')->group(function () {
         ->name('alertas.reabrir');
     Route::get('/documentacao/sensores', [App\Http\Controllers\DocumentacaoController::class, 'sensores'])
         ->name('documentacao.sensores');
+
+    Route::get('/api-tokens', [App\Http\Controllers\ApiTokenController::class, 'index'])->name('api-tokens.index');
+    Route::post('/api-tokens', [App\Http\Controllers\ApiTokenController::class, 'store'])->name('api-tokens.store');
+    Route::delete('/api-tokens/{tokenId}', [App\Http\Controllers\ApiTokenController::class, 'destroy'])->name('api-tokens.destroy');
 });
 /*
 Route::get('/debug-alertas-temp-8k2j9x', function () {
