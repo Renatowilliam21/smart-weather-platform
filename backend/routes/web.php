@@ -88,27 +88,5 @@ Route::get('/debug-testar-email-temp-8k2j9x', function () {
 });
 */
 
-Route::get('/debug-corrigir-timezone-temp-9x3k1z', function () {
-    $driver = \DB::getDriverName();
-    $intervalo = $driver === 'pgsql' ? "INTERVAL '3 hours'" : 'INTERVAL 3 HOUR';
 
-    $n1 = \DB::table('leituras')
-        ->whereDate('created_at', now()->toDateString())
-        ->where('registrado_em', '>=', now()->toDateString() . ' 12:00:00')
-        ->update([
-            'registrado_em' => \DB::raw("registrado_em - {$intervalo}"),
-            'created_at' => \DB::raw("created_at - {$intervalo}"),
-            'updated_at' => \DB::raw("updated_at - {$intervalo}"),
-        ]);
-
-    $n2 = \DB::table('alertas_disparados')
-        ->whereDate('created_at', now()->toDateString())
-        ->where('created_at', '>=', now()->toDateString() . ' 12:00:00')
-        ->update([
-            'created_at' => \DB::raw("created_at - {$intervalo}"),
-            'updated_at' => \DB::raw("updated_at - {$intervalo}"),
-        ]);
-
-    return response()->json(['leituras_corrigidas' => $n1, 'alertas_corrigidos' => $n2]);
-});
 require __DIR__.'/auth.php';
