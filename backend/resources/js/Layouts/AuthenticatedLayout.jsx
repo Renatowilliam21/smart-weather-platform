@@ -55,6 +55,12 @@ export default function AuthenticatedLayout({ header, children }) {
                                     Sensores
                                 </NavLink>
                                 <NavLink
+                                    href={route('documentacao.api')}
+                                    active={route().current('documentacao.api')}
+                                >
+                                    API
+                                </NavLink>
+                                <NavLink
                                     href={route('api-tokens.index')}
                                     active={route().current('api-tokens.*')}
                                 >
@@ -187,6 +193,12 @@ export default function AuthenticatedLayout({ header, children }) {
                             active={route().current('documentacao.*')}
                         >
                             Sensores
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                            href={route('documentacao.api')}
+                            active={route().current('documentacao.api')}
+                        >
+                            API
                         </ResponsiveNavLink>
                         <ResponsiveNavLink
                             href={route('api-tokens.index')}
