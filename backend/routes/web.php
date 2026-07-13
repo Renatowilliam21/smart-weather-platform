@@ -58,4 +58,21 @@ Route::get('/debug-resolver-tudo-temp-8k2j9x', function () {
     return response()->json(['resolvidos' => $quantidade]);
 });
 
+Route::get('/debug-testar-email-temp-8k2j9x', function () {
+    try {
+        \Illuminate\Support\Facades\Mail::raw('Teste de envio direto via rota de diagnostico.', function ($mensagem) {
+            $mensagem->to('rwsti.com@gmail.com')->subject('Teste Direto - Smart Weather Platform');
+        });
+        return response()->json(['resultado' => 'sucesso', 'mensagem' => 'Email enviado sem excecoes.']);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'resultado' => 'erro',
+            'classe_excecao' => get_class($e),
+            'mensagem' => $e->getMessage(),
+            'arquivo' => $e->getFile(),
+            'linha' => $e->getLine(),
+        ]);
+    }
+});
+
 require __DIR__.'/auth.php';
