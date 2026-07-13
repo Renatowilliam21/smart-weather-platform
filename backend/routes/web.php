@@ -40,4 +40,14 @@ Route::middleware('auth')->group(function () {
         ->name('documentacao.sensores');
 });
 
+Route::get('/debug-alertas-temp-8k2j9x', function () {
+    return response()->json([
+        'configs' => \App\Models\AlertaConfig::all(['id', 'estacao_id', 'parametro', 'operador', 'valor_limite', 'ativo']),
+        'disparados_ativos' => \App\Models\AlertaDisparado::where('resolvido', false)
+            ->get(['id', 'alerta_config_id', 'valor_lido', 'created_at']),
+        'total_usuarios' => \App\Models\User::count(),
+        'emails_usuarios' => \App\Models\User::pluck('email'),
+    ]);
+});
+
 require __DIR__.'/auth.php';
