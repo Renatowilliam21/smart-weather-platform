@@ -10,10 +10,6 @@ Route::get('/', function () {
     return view('landing');
 });
 
-Route::get('/debug-teste-sentry-temp-7h2q9w', function () {
-    throw new \Exception('Teste manual de excecao para verificar integracao com Sentry em producao.');
-});
-
 Route::get('/documentacao-api', function () {
     return view('documentacao-api');
 })->name('documentacao.api.publica');
