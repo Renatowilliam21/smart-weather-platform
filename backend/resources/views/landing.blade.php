@@ -58,6 +58,7 @@
 						<li class="nav-item"><a class="nav-link" href="#funcionalidades">Funcionalidades</a></li>
 						<li class="nav-item"><a class="nav-link" href="#depoimentos">Depoimentos</a></li>
 						<li class="nav-item"><a class="nav-link" href="#faq">FAQ</a></li>
+						<li class="nav-item"><a class="nav-link" href="{{ route('documentacao.api.publica') }}">API</a></li>
 						<li class="nav-item"><a class="nav-link" href="#contato">Contato</a></li>
 						<li class="nav-item ms-lg-3">
 							<a class="btn btn-ghost btn-sm" href="https://github.com/Renatowilliam21/smart-weather-platform" target="_blank" rel="noopener">

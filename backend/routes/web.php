@@ -10,6 +10,10 @@ Route::get('/', function () {
     return view('landing');
 });
 
+Route::get('/documentacao-api', function () {
+    return view('documentacao-api');
+})->name('documentacao.api.publica');
+
 Route::get('/dashboard', [App\Http\Controllers\DashboardController::class, 'index'])
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
