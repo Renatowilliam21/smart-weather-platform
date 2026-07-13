@@ -50,4 +50,9 @@ Route::get('/debug-alertas-temp-8k2j9x', function () {
     ]);
 });
 
+Route::get('/debug-resolver-tudo-temp-8k2j9x', function () {
+    $quantidade = \App\Models\AlertaDisparado::where('resolvido', false)->update(['resolvido' => true]);
+    return response()->json(['resolvidos' => $quantidade]);
+});
+
 require __DIR__.'/auth.php';
