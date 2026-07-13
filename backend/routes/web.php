@@ -39,7 +39,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/documentacao/sensores', [App\Http\Controllers\DocumentacaoController::class, 'sensores'])
         ->name('documentacao.sensores');
 });
-
+/*
 Route::get('/debug-alertas-temp-8k2j9x', function () {
     return response()->json([
         'configs' => \App\Models\AlertaConfig::all(['id', 'estacao_id', 'parametro', 'operador', 'valor_limite', 'ativo']),
@@ -74,5 +74,5 @@ Route::get('/debug-testar-email-temp-8k2j9x', function () {
         ]);
     }
 });
-
+*/
 require __DIR__.'/auth.php';
