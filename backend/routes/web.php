@@ -47,6 +47,9 @@ Route::get('/debug-alertas-temp-8k2j9x', function () {
             ->get(['id', 'alerta_config_id', 'valor_lido', 'created_at']),
         'total_usuarios' => \App\Models\User::count(),
         'emails_usuarios' => \App\Models\User::pluck('email'),
+        'brevo_key_tamanho' => strlen((string) config('services.brevo.key')),
+        'brevo_key_inicio' => substr((string) config('services.brevo.key'), 0, 8),
+        'env_brevo_key_existe' => env('BREVO_API_KEY') ? 'sim' : 'nao',
     ]);
 });
 
