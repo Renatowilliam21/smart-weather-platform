@@ -58,6 +58,8 @@ services:
         value: stderr
       - key: MAIL_MAILER
         sync: false
+      - key: BREVO_API_KEY
+        sync: false
       - key: MAIL_HOST
         sync: false
       - key: MAIL_PORT
