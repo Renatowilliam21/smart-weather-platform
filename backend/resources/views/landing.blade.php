@@ -391,7 +391,12 @@
 			</div>
 
 			<div class="rodape-base">
-				<p>&copy; 2026 Smart Weather Platform. Projeto pessoal de pesquisa e desenvolvimento aplicado — Boa Viagem, Ceará.</p>
+				<p>&copy; 2026 Smart Weather Platform. Projeto pessoal de pesquisa e desenvolvimento aplicado — Boa Viagem, Ceará.
+					·
+					<a href="{{ route('privacidade') }}" style="text-decoration: underline;">Política de Privacidade</a>
+					·
+					<a href="{{ route('termos-de-uso') }}" style="text-decoration: underline;">Termos de Uso</a>
+				</p>
 				<a href="#topo" class="rodape-topo">Voltar ao topo <i class="bi bi-arrow-up"></i></a>
 			</div>
 		</div>

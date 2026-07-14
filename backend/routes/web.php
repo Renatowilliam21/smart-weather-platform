@@ -14,6 +14,14 @@ Route::get('/documentacao-api', function () {
     return view('documentacao-api');
 })->name('documentacao.api.publica');
 
+Route::get('/privacidade', function () {
+    return view('privacidade');
+})->name('privacidade');
+
+Route::get('/termos-de-uso', function () {
+    return view('termos-de-uso');
+})->name('termos-de-uso');
+
 Route::get('/dashboard', [App\Http\Controllers\DashboardController::class, 'index'])
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
