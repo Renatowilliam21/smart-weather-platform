@@ -128,22 +128,119 @@ function SeletorMetrica({ metricasDisponiveis, metricaSelecionada, onChange }) {
     );
 }
 
+const ROTULOS_PERIODO = { dia: 'Dia', mes: 'Mês', ano: 'Ano' };
+
+function SeletorPeriodo({ periodosDisponiveis, periodoSelecionado, onChange }) {
+    return (
+        <div className="flex gap-1 bg-gray-100 rounded p-1">
+            {periodosDisponiveis.map((chave) => (
+                <button
+                    key={chave}
+                    onClick={() => onChange(chave)}
+                    className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                        periodoSelecionado === chave
+                            ? 'bg-white text-gray-800 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                    {ROTULOS_PERIODO[chave] ?? chave}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function ajustarData(dataISO, periodo, direcao) {
+    const d = new Date(dataISO + 'T12:00:00');
+    if (periodo === 'mes') {
+        d.setMonth(d.getMonth() + direcao);
+    } else if (periodo === 'ano') {
+        d.setFullYear(d.getFullYear() + direcao);
+    } else {
+        d.setDate(d.getDate() + direcao);
+    }
+    return d.toISOString().split('T')[0];
+}
+
+function NavegacaoPeriodo({ periodo, dataReferencia, navegacaoPeriodo, onNavegar }) {
+    const hojeISO = new Date().toISOString().split('T')[0];
+    const anoAtual = new Date().getFullYear();
+    const anosDisponiveis = [anoAtual, anoAtual - 1, anoAtual - 2, anoAtual - 3];
+
+    return (
+        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5 flex-wrap">
+            <button
+                onClick={() => onNavegar(ajustarData(dataReferencia, periodo, -1))}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600"
+                aria-label="Período anterior"
+            >
+                ‹
+            </button>
+
+            <span className="text-sm font-medium text-gray-700 min-w-[160px] text-center">
+                {navegacaoPeriodo?.rotulo}
+            </span>
+
+            <button
+                onClick={() => navegacaoPeriodo?.pode_avancar && onNavegar(ajustarData(dataReferencia, periodo, 1))}
+                disabled={!navegacaoPeriodo?.pode_avancar}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 disabled:opacity-30 disabled:hover:bg-transparent"
+                aria-label="Próximo período"
+            >
+                ›
+            </button>
+
+            <span className="w-px h-5 bg-gray-200 mx-1" />
+
+            {periodo === 'dia' && (
+                <input
+                    type="date"
+                    value={dataReferencia}
+                    max={hojeISO}
+                    onChange={(e) => e.target.value && onNavegar(e.target.value)}
+                    className="text-sm border-gray-300 rounded py-1"
+                />
+            )}
+            {periodo === 'mes' && (
+                <input
+                    type="month"
+                    value={dataReferencia.slice(0, 7)}
+                    max={hojeISO.slice(0, 7)}
+                    onChange={(e) => e.target.value && onNavegar(`${e.target.value}-01`)}
+                    className="text-sm border-gray-300 rounded py-1"
+                />
+            )}
+            {periodo === 'ano' && (
+                <select
+                    value={dataReferencia.slice(0, 4)}
+                    onChange={(e) => onNavegar(`${e.target.value}-01-01`)}
+                    className="text-sm border-gray-300 rounded py-1"
+                >
+                    {anosDisponiveis.map((ano) => (
+                        <option key={ano} value={ano}>{ano}</option>
+                    ))}
+                </select>
+            )}
+        </div>
+    );
+}
+
 function GraficoMetrica({ serieMetrica, estacoes, metricaSelecionada }) {
     const nomesPorId = Object.fromEntries(estacoes.map(e => [e.id, e.nome]));
     const infoMetrica = METRICAS[metricaSelecionada] ?? { rotulo: metricaSelecionada, unidade: '' };
 
     // O backend ja envia um ponto para cada uma das 24 horas fixas (00:00 a 23:00),
     // com valor=null nas horas sem leitura registrada (para exibir como lacuna no grafico).
-    const dadosPorHora = {};
+    const dadosPorRotulo = {};
     serieMetrica.forEach((ponto) => {
-        if (!dadosPorHora[ponto.hora]) {
-            dadosPorHora[ponto.hora] = { horario: ponto.hora };
+        if (!dadosPorRotulo[ponto.rotulo]) {
+            dadosPorRotulo[ponto.rotulo] = { horario: ponto.rotulo, _ordem: Object.keys(dadosPorRotulo).length };
         }
         const nomeEstacao = nomesPorId[ponto.estacao_id] ?? `Estação ${ponto.estacao_id}`;
-        dadosPorHora[ponto.hora][nomeEstacao] = ponto.valor !== null ? parseFloat(ponto.valor) : null;
+        dadosPorRotulo[ponto.rotulo][nomeEstacao] = ponto.valor !== null ? parseFloat(ponto.valor) : null;
     });
 
-    const dados = Object.values(dadosPorHora).sort((a, b) => a.horario.localeCompare(b.horario));
+    const dados = Object.values(dadosPorRotulo);
     const idsPresentes = [...new Set(serieMetrica.map(p => p.estacao_id))];
     const nomesEstacoes = idsPresentes.map(id => nomesPorId[id] ?? `Estação ${id}`);
     const cores = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea'];
@@ -157,7 +254,7 @@ function GraficoMetrica({ serieMetrica, estacoes, metricaSelecionada }) {
                 <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={dados}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="horario" interval={1} />
+                        <XAxis dataKey="horario" interval={dados.length > 15 ? 1 : 0} />
                         <YAxis domain={['auto', 'auto']} />
                         <Tooltip />
                         <Legend />
@@ -277,24 +374,32 @@ export default function Dashboard({
     serieMetrica: serieInicial,
     metricasDisponiveis,
     metricaSelecionada,
+    periodosDisponiveis,
+    periodoSelecionado,
+    dataReferencia,
+    navegacaoPeriodo: navegacaoPeriodoInicial,
     alertasRecentes: alertasIniciais,
     estacaoSelecionada,
 }) {
     const [estacoes, setEstacoes] = useState(estacoesIniciais);
     const [serieMetrica, setSerieMetrica] = useState(serieInicial);
     const [alertasRecentes, setAlertasRecentes] = useState(alertasIniciais);
+    const [navegacaoPeriodo, setNavegacaoPeriodo] = useState(navegacaoPeriodoInicial);
 
     useEffect(() => {
         setEstacoes(estacoesIniciais);
         setSerieMetrica(serieInicial);
         setAlertasRecentes(alertasIniciais);
-    }, [estacoesIniciais, serieInicial, alertasIniciais]);
+        setNavegacaoPeriodo(navegacaoPeriodoInicial);
+    }, [estacoesIniciais, serieInicial, alertasIniciais, navegacaoPeriodoInicial]);
 
     const atualizarDados = useCallback(async () => {
         try {
             const params = new URLSearchParams();
             if (estacaoSelecionada) params.set('estacao_id', estacaoSelecionada);
             if (metricaSelecionada) params.set('metrica', metricaSelecionada);
+            if (periodoSelecionado) params.set('periodo', periodoSelecionado);
+            if (dataReferencia) params.set('data', dataReferencia);
             const response = await fetch(`/api/dashboard/refresh?${params.toString()}`, {
                 headers: { Accept: 'application/json' },
             });
@@ -303,10 +408,11 @@ export default function Dashboard({
             setEstacoes(data.estacoes);
             setSerieMetrica(data.serieMetrica);
             setAlertasRecentes(data.alertasRecentes);
+            setNavegacaoPeriodo(data.navegacaoPeriodo);
         } catch (error) {
             console.error('Falha ao atualizar dashboard:', error);
         }
-    }, [estacaoSelecionada, metricaSelecionada]);
+    }, [estacaoSelecionada, metricaSelecionada, periodoSelecionado, dataReferencia]);
 
     useEffect(() => {
         const intervalo = setInterval(atualizarDados, 30000);
@@ -319,6 +425,8 @@ export default function Dashboard({
             {
                 ...(estacaoId ? { estacao_id: estacaoId } : {}),
                 ...(metricaSelecionada ? { metrica: metricaSelecionada } : {}),
+                ...(periodoSelecionado ? { periodo: periodoSelecionado } : {}),
+                ...(dataReferencia ? { data: dataReferencia } : {}),
             },
             { preserveState: true, preserveScroll: true }
         );
@@ -330,6 +438,34 @@ export default function Dashboard({
             {
                 ...(estacaoSelecionada ? { estacao_id: estacaoSelecionada } : {}),
                 metrica,
+                ...(periodoSelecionado ? { periodo: periodoSelecionado } : {}),
+                ...(dataReferencia ? { data: dataReferencia } : {}),
+            },
+            { preserveState: true, preserveScroll: true }
+        );
+    };
+
+    const handleSelecionarPeriodo = (periodo) => {
+        router.get(
+            route('dashboard'),
+            {
+                ...(estacaoSelecionada ? { estacao_id: estacaoSelecionada } : {}),
+                ...(metricaSelecionada ? { metrica: metricaSelecionada } : {}),
+                periodo,
+                ...(dataReferencia ? { data: dataReferencia } : {}),
+            },
+            { preserveState: true, preserveScroll: true }
+        );
+    };
+
+    const handleNavegarData = (novaData) => {
+        router.get(
+            route('dashboard'),
+            {
+                ...(estacaoSelecionada ? { estacao_id: estacaoSelecionada } : {}),
+                ...(metricaSelecionada ? { metrica: metricaSelecionada } : {}),
+                ...(periodoSelecionado ? { periodo: periodoSelecionado } : {}),
+                data: novaData,
             },
             { preserveState: true, preserveScroll: true }
         );
@@ -394,12 +530,25 @@ export default function Dashboard({
                         )}
                     </div>
 
-                    <div className="flex justify-end">
-                        <SeletorMetrica
-                            metricasDisponiveis={metricasDisponiveis}
-                            metricaSelecionada={metricaSelecionada}
-                            onChange={handleSelecionarMetrica}
+                    <div className="flex justify-between items-center gap-3 flex-wrap">
+                        <NavegacaoPeriodo
+                            periodo={periodoSelecionado}
+                            dataReferencia={dataReferencia}
+                            navegacaoPeriodo={navegacaoPeriodo}
+                            onNavegar={handleNavegarData}
                         />
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <SeletorPeriodo
+                                periodosDisponiveis={periodosDisponiveis}
+                                periodoSelecionado={periodoSelecionado}
+                                onChange={handleSelecionarPeriodo}
+                            />
+                            <SeletorMetrica
+                                metricasDisponiveis={metricasDisponiveis}
+                                metricaSelecionada={metricaSelecionada}
+                                onChange={handleSelecionarMetrica}
+                            />
+                        </div>
                     </div>
 
                     <GraficoMetrica
