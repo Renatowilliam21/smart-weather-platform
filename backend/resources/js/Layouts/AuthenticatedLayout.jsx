@@ -75,6 +75,12 @@ export default function AuthenticatedLayout({ header, children }) {
                                 >
                                     Tokens API
                                 </NavLink>
+                                <NavLink
+                                    href={route('auditoria.index')}
+                                    active={route().current('auditoria.*')}
+                                >
+                                    Auditoria
+                                </NavLink>
                             </div>
                         </div>
 
@@ -213,6 +219,12 @@ export default function AuthenticatedLayout({ header, children }) {
                             active={route().current('api-tokens.*')}
                         >
                             Tokens API
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                            href={route('auditoria.index')}
+                            active={route().current('auditoria.*')}
+                        >
+                            Auditoria
                         </ResponsiveNavLink>
                     </div>
 

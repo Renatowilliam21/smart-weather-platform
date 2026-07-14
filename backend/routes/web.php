@@ -55,6 +55,8 @@ Route::middleware('auth')->group(function () {
         return \Inertia\Inertia::render('Documentacao/Api');
     })->name('documentacao.api');
 
+    Route::get('/auditoria', [App\Http\Controllers\AuditoriaController::class, 'index'])->name('auditoria.index');
+
     Route::get('/api-tokens', [App\Http\Controllers\ApiTokenController::class, 'index'])->name('api-tokens.index');
     Route::post('/api-tokens', [App\Http\Controllers\ApiTokenController::class, 'store'])->name('api-tokens.store');
     Route::delete('/api-tokens/{tokenId}', [App\Http\Controllers\ApiTokenController::class, 'destroy'])->name('api-tokens.destroy');

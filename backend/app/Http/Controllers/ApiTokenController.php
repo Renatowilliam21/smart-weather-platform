@@ -28,13 +28,26 @@ class ApiTokenController extends Controller
 
         $token = $request->user()->createToken($request->input('name'), ['read']);
 
+        activity('api_token')
+            ->causedBy($request->user())
+            ->withProperties(['nome_token' => $request->input('name')])
+            ->log('Token de API criado');
+
         return redirect()->route('api-tokens.index')
             ->with('token_gerado', $token->plainTextToken);
     }
 
     public function destroy(Request $request, int $tokenId): RedirectResponse
     {
+        $token = $request->user()->tokens()->where('id', $tokenId)->first();
+        $nomeToken = $token->name ?? 'desconhecido';
+
         $request->user()->tokens()->where('id', $tokenId)->delete();
+
+        activity('api_token')
+            ->causedBy($request->user())
+            ->withProperties(['nome_token' => $nomeToken])
+            ->log('Token de API revogado');
 
         return redirect()->route('api-tokens.index')
             ->with('success', 'Token revogado com sucesso.');

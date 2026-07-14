@@ -13,6 +13,7 @@
         "laravel/tinker": "^3.0",
         "predis/predis": "*",
         "sentry/sentry-laravel": "^4.26",
+        "spatie/laravel-activitylog": "^4.12",
         "symfony/brevo-mailer": "^7.4",
         "symfony/http-client": "^7.4",
         "tightenco/ziggy": "^2.0"
