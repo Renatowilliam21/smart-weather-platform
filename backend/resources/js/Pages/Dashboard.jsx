@@ -99,28 +99,60 @@ function EstacaoCard({ estacao }) {
     );
 }
 
-function GraficoItgu({ serieItgu, estacoes }) {
+const METRICAS = {
+    itgu: { rotulo: 'ITGU', unidade: '' },
+    itu: { rotulo: 'ITU', unidade: '' },
+    temperatura_ar: { rotulo: 'Temperatura do Ar', unidade: '°C' },
+    umidade_ar: { rotulo: 'Umidade do Ar', unidade: '%' },
+    luminosidade: { rotulo: 'Luminosidade', unidade: '%' },
+    indice_uv: { rotulo: 'Índice UV', unidade: '' },
+};
+
+function SeletorMetrica({ metricasDisponiveis, metricaSelecionada, onChange }) {
+    return (
+        <div className="flex flex-wrap gap-2">
+            {metricasDisponiveis.map((chave) => (
+                <button
+                    key={chave}
+                    onClick={() => onChange(chave)}
+                    className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                        metricaSelecionada === chave
+                            ? 'bg-gray-800 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                >
+                    {METRICAS[chave]?.rotulo ?? chave}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+function GraficoMetrica({ serieMetrica, estacoes, metricaSelecionada }) {
     const nomesPorId = Object.fromEntries(estacoes.map(e => [e.id, e.nome]));
+    const infoMetrica = METRICAS[metricaSelecionada] ?? { rotulo: metricaSelecionada, unidade: '' };
 
     // O backend ja envia um ponto para cada uma das 24 horas fixas (00:00 a 23:00),
-    // com itgu=null nas horas sem leitura registrada (para exibir como lacuna no grafico).
+    // com valor=null nas horas sem leitura registrada (para exibir como lacuna no grafico).
     const dadosPorHora = {};
-    serieItgu.forEach((ponto) => {
+    serieMetrica.forEach((ponto) => {
         if (!dadosPorHora[ponto.hora]) {
             dadosPorHora[ponto.hora] = { horario: ponto.hora };
         }
         const nomeEstacao = nomesPorId[ponto.estacao_id] ?? `Estação ${ponto.estacao_id}`;
-        dadosPorHora[ponto.hora][nomeEstacao] = ponto.itgu !== null ? parseFloat(ponto.itgu) : null;
+        dadosPorHora[ponto.hora][nomeEstacao] = ponto.valor !== null ? parseFloat(ponto.valor) : null;
     });
 
     const dados = Object.values(dadosPorHora).sort((a, b) => a.horario.localeCompare(b.horario));
-    const idsPresentes = [...new Set(serieItgu.map(p => p.estacao_id))];
+    const idsPresentes = [...new Set(serieMetrica.map(p => p.estacao_id))];
     const nomesEstacoes = idsPresentes.map(id => nomesPorId[id] ?? `Estação ${id}`);
     const cores = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea'];
 
     return (
         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-            <h3 className="font-semibold text-lg text-gray-800 mb-4">ITGU — Hoje (média por hora)</h3>
+            <h3 className="font-semibold text-lg text-gray-800 mb-4">
+                {infoMetrica.rotulo} — Hoje (média por hora){infoMetrica.unidade ? ` (${infoMetrica.unidade})` : ''}
+            </h3>
             {dados.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={dados}>
@@ -141,7 +173,7 @@ function GraficoItgu({ serieItgu, estacoes }) {
                     </LineChart>
                 </ResponsiveContainer>
             ) : (
-                <p className="text-sm text-gray-400">Sem dados nas últimas 24h</p>
+                <p className="text-sm text-gray-400">Sem dados hoje para esta métrica</p>
             )}
         </div>
     );
@@ -242,35 +274,39 @@ function MapaEstacoes({ estacoes }) {
 
 export default function Dashboard({
     estacoes: estacoesIniciais,
-    serieItgu: serieInicial,
+    serieMetrica: serieInicial,
+    metricasDisponiveis,
+    metricaSelecionada,
     alertasRecentes: alertasIniciais,
     estacaoSelecionada,
 }) {
     const [estacoes, setEstacoes] = useState(estacoesIniciais);
-    const [serieItgu, setSerieItgu] = useState(serieInicial);
+    const [serieMetrica, setSerieMetrica] = useState(serieInicial);
     const [alertasRecentes, setAlertasRecentes] = useState(alertasIniciais);
 
     useEffect(() => {
         setEstacoes(estacoesIniciais);
-        setSerieItgu(serieInicial);
+        setSerieMetrica(serieInicial);
         setAlertasRecentes(alertasIniciais);
     }, [estacoesIniciais, serieInicial, alertasIniciais]);
 
     const atualizarDados = useCallback(async () => {
         try {
-            const params = estacaoSelecionada ? `?estacao_id=${estacaoSelecionada}` : '';
-            const response = await fetch(`/api/dashboard/refresh${params}`, {
+            const params = new URLSearchParams();
+            if (estacaoSelecionada) params.set('estacao_id', estacaoSelecionada);
+            if (metricaSelecionada) params.set('metrica', metricaSelecionada);
+            const response = await fetch(`/api/dashboard/refresh?${params.toString()}`, {
                 headers: { Accept: 'application/json' },
             });
             if (!response.ok) return;
             const data = await response.json();
             setEstacoes(data.estacoes);
-            setSerieItgu(data.serieItgu);
+            setSerieMetrica(data.serieMetrica);
             setAlertasRecentes(data.alertasRecentes);
         } catch (error) {
             console.error('Falha ao atualizar dashboard:', error);
         }
-    }, [estacaoSelecionada]);
+    }, [estacaoSelecionada, metricaSelecionada]);
 
     useEffect(() => {
         const intervalo = setInterval(atualizarDados, 30000);
@@ -280,7 +316,21 @@ export default function Dashboard({
     const handleSelecionarEstacao = (estacaoId) => {
         router.get(
             route('dashboard'),
-            estacaoId ? { estacao_id: estacaoId } : {},
+            {
+                ...(estacaoId ? { estacao_id: estacaoId } : {}),
+                ...(metricaSelecionada ? { metrica: metricaSelecionada } : {}),
+            },
+            { preserveState: true, preserveScroll: true }
+        );
+    };
+
+    const handleSelecionarMetrica = (metrica) => {
+        router.get(
+            route('dashboard'),
+            {
+                ...(estacaoSelecionada ? { estacao_id: estacaoSelecionada } : {}),
+                metrica,
+            },
             { preserveState: true, preserveScroll: true }
         );
     };
@@ -344,7 +394,19 @@ export default function Dashboard({
                         )}
                     </div>
 
-                    <GraficoItgu serieItgu={serieItgu} estacoes={estacoes} />
+                    <div className="flex justify-end">
+                        <SeletorMetrica
+                            metricasDisponiveis={metricasDisponiveis}
+                            metricaSelecionada={metricaSelecionada}
+                            onChange={handleSelecionarMetrica}
+                        />
+                    </div>
+
+                    <GraficoMetrica
+                        serieMetrica={serieMetrica}
+                        estacoes={estacoes}
+                        metricaSelecionada={metricaSelecionada}
+                    />
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <ListaAlertas
