@@ -102,33 +102,31 @@ function EstacaoCard({ estacao }) {
 function GraficoItgu({ serieItgu, estacoes }) {
     const nomesPorId = Object.fromEntries(estacoes.map(e => [e.id, e.nome]));
 
-    const dadosPorTimestamp = {};
-    serieItgu.forEach((leitura) => {
-        const ts = new Date(leitura.registrado_em).toLocaleTimeString('pt-BR', {
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-        if (!dadosPorTimestamp[ts]) {
-            dadosPorTimestamp[ts] = { horario: ts };
+    // O backend ja envia um ponto para cada uma das 24 horas fixas (00:00 a 23:00),
+    // com itgu=null nas horas sem leitura registrada (para exibir como lacuna no grafico).
+    const dadosPorHora = {};
+    serieItgu.forEach((ponto) => {
+        if (!dadosPorHora[ponto.hora]) {
+            dadosPorHora[ponto.hora] = { horario: ponto.hora };
         }
-        const nomeEstacao = nomesPorId[leitura.estacao_id] ?? `Estação ${leitura.estacao_id}`;
-        dadosPorTimestamp[ts][nomeEstacao] = parseFloat(leitura.itgu);
+        const nomeEstacao = nomesPorId[ponto.estacao_id] ?? `Estação ${ponto.estacao_id}`;
+        dadosPorHora[ponto.hora][nomeEstacao] = ponto.itgu !== null ? parseFloat(ponto.itgu) : null;
     });
 
-    const dados = Object.values(dadosPorTimestamp);
-    const idsPresentes = [...new Set(serieItgu.map(l => l.estacao_id))];
+    const dados = Object.values(dadosPorHora).sort((a, b) => a.horario.localeCompare(b.horario));
+    const idsPresentes = [...new Set(serieItgu.map(p => p.estacao_id))];
     const nomesEstacoes = idsPresentes.map(id => nomesPorId[id] ?? `Estação ${id}`);
     const cores = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea'];
 
     return (
         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-            <h3 className="font-semibold text-lg text-gray-800 mb-4">ITGU — Últimas 24h</h3>
+            <h3 className="font-semibold text-lg text-gray-800 mb-4">ITGU — Hoje (média por hora)</h3>
             {dados.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={dados}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="horario" />
-                        <YAxis />
+                        <XAxis dataKey="horario" interval={1} />
+                        <YAxis domain={['auto', 'auto']} />
                         <Tooltip />
                         <Legend />
                         {nomesEstacoes.map((nome, i) => (
@@ -137,7 +135,7 @@ function GraficoItgu({ serieItgu, estacoes }) {
                                 type="monotone"
                                 dataKey={nome}
                                 stroke={cores[i % cores.length]}
-                                connectNulls
+                                connectNulls={false}
                             />
                         ))}
                     </LineChart>

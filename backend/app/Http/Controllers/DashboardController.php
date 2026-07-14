@@ -68,11 +68,45 @@ class DashboardController extends Controller
 
     private function serieItguUltimas24h(?int $estacaoId = null)
     {
-        return \App\Models\Leitura::where('registrado_em', '>=', now()->subHours(24))
+        $inicioHoje = now()->startOfDay();
+
+        $estacoes = \App\Models\Estacao::where('ativo', true)
+            ->when($estacaoId, fn ($query) => $query->where('id', $estacaoId))
+            ->get(['id', 'nome']);
+
+        $leituras = \App\Models\Leitura::where('registrado_em', '>=', $inicioHoje)
             ->whereNotNull('itgu')
             ->when($estacaoId, fn ($query) => $query->where('estacao_id', $estacaoId))
-            ->orderBy('registrado_em')
             ->get(['estacao_id', 'itgu', 'registrado_em']);
+
+        // Agrupa leituras por estacao + hora, calculando a media de cada bucket
+        $mediasPorHoraEEstacao = $leituras
+            ->groupBy(fn ($leitura) => $leitura->estacao_id . '_' . $leitura->registrado_em->format('H'))
+            ->map(function ($grupo) {
+                return [
+                    'estacao_id' => $grupo->first()->estacao_id,
+                    'hora' => (int) $grupo->first()->registrado_em->format('H'),
+                    'itgu' => round($grupo->avg('itgu'), 2),
+                ];
+            });
+
+        // Monta as 24 horas fixas (00 a 23), preenchendo com null onde nao ha dado
+        $serie = [];
+        foreach (range(0, 23) as $hora) {
+            foreach ($estacoes as $estacao) {
+                $bucket = $mediasPorHoraEEstacao->first(function ($item) use ($hora, $estacao) {
+                    return $item['hora'] === $hora && $item['estacao_id'] === $estacao->id;
+                });
+
+                $serie[] = [
+                    'estacao_id' => $estacao->id,
+                    'hora' => sprintf('%02d:00', $hora),
+                    'itgu' => $bucket['itgu'] ?? null,
+                ];
+            }
+        }
+
+        return $serie;
     }
 
     private function alertasRecentes(?int $estacaoId = null)
