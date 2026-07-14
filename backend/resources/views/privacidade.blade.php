@@ -147,10 +147,41 @@ pelo painel, em <strong>Perfil → Excluir Conta</strong>, sem necessidade de co
 <div class="doc-secao">
 <h2>7. Retenção de dados</h2>
 <p>
-Dados de conta são mantidos enquanto sua conta estiver ativa. Dados de leituras
-ambientais são mantidos por tempo indeterminado, por constituírem série histórica
-de pesquisa, salvo solicitação específica de remoção de dados vinculados a uma
-estação de sua propriedade.
+Adotamos critérios distintos de retenção conforme a natureza do dado, em
+conformidade com o princípio da necessidade previsto na LGPD (Art. 6º, III):
+</p>
+
+<div class="doc-caixa">
+<p><strong>7.1 Dados de conta (pessoais)</strong></p>
+<p style="margin-top: .5rem;">
+Mantidos enquanto sua conta estiver ativa. São excluídos permanentemente e de
+forma irreversível assim que você solicitar a exclusão da conta, em
+<strong>Perfil → Excluir Conta</strong>, sem prazo de carência.
+</p>
+</div>
+
+<div class="doc-caixa" style="margin-top: 1rem;">
+<p><strong>7.2 Dados de leituras ambientais (não pessoais)</strong></p>
+<p style="margin-top: .5rem;">
+Mantidos por <strong>tempo indeterminado</strong>. Esta decisão se justifica
+porque tais dados: (i) não identificam pessoas físicas, referindo-se
+exclusivamente a condições ambientais e localização de equipamentos; (ii)
+constituem série histórica de valor científico crescente ao longo do tempo,
+enquadrando-se na hipótese de tratamento para fins de estudo por órgão de
+pesquisa prevista no Art. 7º, IV da LGPD; e (iii) fundamentam publicações
+acadêmicas e análises de tendência climática de longo prazo, que perderiam
+validade caso os dados fossem descartados periodicamente.
+</p>
+<p style="margin-top: .75rem;">
+Leituras vinculadas a uma estação de sua propriedade podem ser removidas
+mediante solicitação específica, conforme detalhado na Seção 5.
+</p>
+</div>
+
+<p style="margin-top: 1rem; font-size: .9rem; color: rgba(244,239,228,.6);">
+Este critério é revisado periodicamente e pode ser atualizado caso a finalidade
+da pesquisa ou o volume de dados justifiquem uma política de arquivamento no
+futuro — qualquer mudança será refletida nesta página.
 </p>
 </div>
 
