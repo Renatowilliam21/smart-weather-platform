@@ -1,19 +1,24 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, router } from '@inertiajs/react';
-import {
-    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-} from 'recharts';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
+// Carregados sob demanda: Leaflet (mapa) e Recharts (grafico) sao bibliotecas
+// pesadas que nao precisam estar no bundle principal do Dashboard.
+const MapaEstacoes = lazy(() => import('@/Components/Dashboard/MapaEstacoes'));
+const GraficoMetrica = lazy(() => import('@/Components/Dashboard/PainelMetrica'));
+
+import { SeletorMetrica, SeletorPeriodo, NavegacaoPeriodo } from '@/Components/Dashboard/SeletoresPeriodo';
+
+function CarregandoWidget({ altura = 300 }) {
+    return (
+        <div
+            className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 flex items-center justify-center text-sm text-gray-400"
+            style={{ minHeight: altura }}
+        >
+            Carregando...
+        </div>
+    );
+}
 
 const CLASSIFICACAO_CORES = {
     normal: 'bg-green-100 text-green-800',
@@ -99,183 +104,6 @@ function EstacaoCard({ estacao }) {
     );
 }
 
-const METRICAS = {
-    itgu: { rotulo: 'ITGU', unidade: '' },
-    itu: { rotulo: 'ITU', unidade: '' },
-    temperatura_ar: { rotulo: 'Temperatura do Ar', unidade: '°C' },
-    umidade_ar: { rotulo: 'Umidade do Ar', unidade: '%' },
-    luminosidade: { rotulo: 'Luminosidade', unidade: '%' },
-    indice_uv: { rotulo: 'Índice UV', unidade: '' },
-};
-
-function SeletorMetrica({ metricasDisponiveis, metricaSelecionada, onChange }) {
-    return (
-        <div className="flex flex-wrap gap-2">
-            {metricasDisponiveis.map((chave) => (
-                <button
-                    key={chave}
-                    onClick={() => onChange(chave)}
-                    className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                        metricaSelecionada === chave
-                            ? 'bg-gray-800 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                >
-                    {METRICAS[chave]?.rotulo ?? chave}
-                </button>
-            ))}
-        </div>
-    );
-}
-
-const ROTULOS_PERIODO = { dia: 'Dia', mes: 'Mês', ano: 'Ano' };
-
-function SeletorPeriodo({ periodosDisponiveis, periodoSelecionado, onChange }) {
-    return (
-        <div className="flex gap-1 bg-gray-100 rounded p-1">
-            {periodosDisponiveis.map((chave) => (
-                <button
-                    key={chave}
-                    onClick={() => onChange(chave)}
-                    className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                        periodoSelecionado === chave
-                            ? 'bg-white text-gray-800 shadow-sm'
-                            : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                >
-                    {ROTULOS_PERIODO[chave] ?? chave}
-                </button>
-            ))}
-        </div>
-    );
-}
-
-function ajustarData(dataISO, periodo, direcao) {
-    const d = new Date(dataISO + 'T12:00:00');
-    if (periodo === 'mes') {
-        d.setMonth(d.getMonth() + direcao);
-    } else if (periodo === 'ano') {
-        d.setFullYear(d.getFullYear() + direcao);
-    } else {
-        d.setDate(d.getDate() + direcao);
-    }
-    return d.toISOString().split('T')[0];
-}
-
-function NavegacaoPeriodo({ periodo, dataReferencia, navegacaoPeriodo, onNavegar }) {
-    const hojeISO = new Date().toISOString().split('T')[0];
-    const anoAtual = new Date().getFullYear();
-    const anosDisponiveis = [anoAtual, anoAtual - 1, anoAtual - 2, anoAtual - 3];
-
-    return (
-        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5 flex-wrap">
-            <button
-                onClick={() => onNavegar(ajustarData(dataReferencia, periodo, -1))}
-                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600"
-                aria-label="Período anterior"
-            >
-                ‹
-            </button>
-
-            <span className="text-sm font-medium text-gray-700 min-w-[160px] text-center">
-                {navegacaoPeriodo?.rotulo}
-            </span>
-
-            <button
-                onClick={() => navegacaoPeriodo?.pode_avancar && onNavegar(ajustarData(dataReferencia, periodo, 1))}
-                disabled={!navegacaoPeriodo?.pode_avancar}
-                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 disabled:opacity-30 disabled:hover:bg-transparent"
-                aria-label="Próximo período"
-            >
-                ›
-            </button>
-
-            <span className="w-px h-5 bg-gray-200 mx-1" />
-
-            {periodo === 'dia' && (
-                <input
-                    type="date"
-                    value={dataReferencia}
-                    max={hojeISO}
-                    onChange={(e) => e.target.value && onNavegar(e.target.value)}
-                    className="text-sm border-gray-300 rounded py-1"
-                />
-            )}
-            {periodo === 'mes' && (
-                <input
-                    type="month"
-                    value={dataReferencia.slice(0, 7)}
-                    max={hojeISO.slice(0, 7)}
-                    onChange={(e) => e.target.value && onNavegar(`${e.target.value}-01`)}
-                    className="text-sm border-gray-300 rounded py-1"
-                />
-            )}
-            {periodo === 'ano' && (
-                <select
-                    value={dataReferencia.slice(0, 4)}
-                    onChange={(e) => onNavegar(`${e.target.value}-01-01`)}
-                    className="text-sm border-gray-300 rounded py-1"
-                >
-                    {anosDisponiveis.map((ano) => (
-                        <option key={ano} value={ano}>{ano}</option>
-                    ))}
-                </select>
-            )}
-        </div>
-    );
-}
-
-function GraficoMetrica({ serieMetrica, estacoes, metricaSelecionada }) {
-    const nomesPorId = Object.fromEntries(estacoes.map(e => [e.id, e.nome]));
-    const infoMetrica = METRICAS[metricaSelecionada] ?? { rotulo: metricaSelecionada, unidade: '' };
-
-    // O backend ja envia um ponto para cada uma das 24 horas fixas (00:00 a 23:00),
-    // com valor=null nas horas sem leitura registrada (para exibir como lacuna no grafico).
-    const dadosPorRotulo = {};
-    serieMetrica.forEach((ponto) => {
-        if (!dadosPorRotulo[ponto.rotulo]) {
-            dadosPorRotulo[ponto.rotulo] = { horario: ponto.rotulo, _ordem: Object.keys(dadosPorRotulo).length };
-        }
-        const nomeEstacao = nomesPorId[ponto.estacao_id] ?? `Estação ${ponto.estacao_id}`;
-        dadosPorRotulo[ponto.rotulo][nomeEstacao] = ponto.valor !== null ? parseFloat(ponto.valor) : null;
-    });
-
-    const dados = Object.values(dadosPorRotulo);
-    const idsPresentes = [...new Set(serieMetrica.map(p => p.estacao_id))];
-    const nomesEstacoes = idsPresentes.map(id => nomesPorId[id] ?? `Estação ${id}`);
-    const cores = ['#2563eb', '#dc2626', '#16a34a', '#ca8a04', '#9333ea'];
-
-    return (
-        <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-            <h3 className="font-semibold text-lg text-gray-800 mb-4">
-                {infoMetrica.rotulo} — Hoje (média por hora){infoMetrica.unidade ? ` (${infoMetrica.unidade})` : ''}
-            </h3>
-            {dados.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={dados}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="horario" interval={dados.length > 15 ? 1 : 0} />
-                        <YAxis domain={['auto', 'auto']} />
-                        <Tooltip />
-                        <Legend />
-                        {nomesEstacoes.map((nome, i) => (
-                            <Line
-                                key={nome}
-                                type="monotone"
-                                dataKey={nome}
-                                stroke={cores[i % cores.length]}
-                                connectNulls={false}
-                            />
-                        ))}
-                    </LineChart>
-                </ResponsiveContainer>
-            ) : (
-                <p className="text-sm text-gray-400">Sem dados hoje para esta métrica</p>
-            )}
-        </div>
-    );
-}
-
 function ListaAlertas({ alertas, onResolver, onReabrir }) {
     return (
         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
@@ -323,47 +151,6 @@ function ListaAlertas({ alertas, onResolver, onReabrir }) {
                 </ul>
             ) : (
                 <p className="text-sm text-gray-400">Nenhum alerta registrado</p>
-            )}
-        </div>
-    );
-}
-
-function MapaEstacoes({ estacoes }) {
-    const comCoordenadas = estacoes.filter((e) => e.latitude && e.longitude);
-    const centro = comCoordenadas.length > 0
-        ? [parseFloat(comCoordenadas[0].latitude), parseFloat(comCoordenadas[0].longitude)]
-        : [-5.1, -39.1];
-
-    return (
-        <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-            <h3 className="font-semibold text-lg text-gray-800 mb-4">Localização das Estações</h3>
-            {comCoordenadas.length > 0 ? (
-                <MapContainer center={centro} zoom={10} style={{ height: '300px', width: '100%' }}>
-                    <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                    />
-                    {comCoordenadas.map((estacao) => (
-                        <Marker
-                            key={estacao.id}
-                            position={[parseFloat(estacao.latitude), parseFloat(estacao.longitude)]}
-                        >
-                            <Popup>
-                                <strong>{estacao.nome}</strong>
-                                <br />
-                                {estacao.localizacao}
-                                {estacao.ultima_leitura && (
-                                    <>
-                                        <br />
-                                        ITGU: {estacao.ultima_leitura.itgu ?? '—'}
-                                    </>
-                                )}
-                            </Popup>
-                        </Marker>
-                    ))}
-                </MapContainer>
-            ) : (
-                <p className="text-sm text-gray-400">Nenhuma estação com coordenadas cadastradas</p>
             )}
         </div>
     );
@@ -551,11 +338,13 @@ export default function Dashboard({
                         </div>
                     </div>
 
-                    <GraficoMetrica
-                        serieMetrica={serieMetrica}
-                        estacoes={estacoes}
-                        metricaSelecionada={metricaSelecionada}
-                    />
+                    <Suspense fallback={<CarregandoWidget />}>
+                        <GraficoMetrica
+                            serieMetrica={serieMetrica}
+                            estacoes={estacoes}
+                            metricaSelecionada={metricaSelecionada}
+                        />
+                    </Suspense>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <ListaAlertas
@@ -563,7 +352,9 @@ export default function Dashboard({
                             onResolver={handleResolverAlerta}
                             onReabrir={handleReabrirAlerta}
                         />
-                        <MapaEstacoes estacoes={estacoesFiltradas} />
+                        <Suspense fallback={<CarregandoWidget />}>
+                            <MapaEstacoes estacoes={estacoesFiltradas} />
+                        </Suspense>
                     </div>
                 </div>
             </div>
