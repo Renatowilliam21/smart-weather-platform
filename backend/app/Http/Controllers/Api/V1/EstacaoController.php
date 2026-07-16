@@ -6,13 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\Estacao;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class EstacaoController extends Controller
 {
     public function index(): JsonResponse
     {
-        $estacoes = Estacao::where('ativo', true)
-            ->get(['id', 'nome', 'localizacao', 'latitude', 'longitude', 'ativo', 'created_at']);
+        $estacoes = Cache::remember('api_v1_estacoes_lista', now()->addMinutes(5), function () {
+            return Estacao::where('ativo', true)
+                ->get(['id', 'nome', 'localizacao', 'latitude', 'longitude', 'ativo', 'created_at']);
+        });
 
         return response()->json(['data' => $estacoes]);
     }

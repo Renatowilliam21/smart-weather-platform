@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -32,6 +33,12 @@ class Estacao extends Model
     protected $hidden = [
         'token_api',
     ];
+
+    protected static function booted(): void
+    {
+        static::saved(fn () => Cache::forget('api_v1_estacoes_lista'));
+        static::deleted(fn () => Cache::forget('api_v1_estacoes_lista'));
+    }
 
     public function getActivitylogOptions(): LogOptions
     {
