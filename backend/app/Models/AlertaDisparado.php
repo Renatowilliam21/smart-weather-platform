@@ -18,12 +18,14 @@ class AlertaDisparado extends Model
         'valor_lido',
         'notificado_em',
         'resolvido',
+        'resolvido_em',
     ];
 
     protected $casts = [
         'valor_lido' => 'decimal:4',
         'notificado_em' => 'datetime',
         'resolvido' => 'boolean',
+        'resolvido_em' => 'datetime',
     ];
 
     public function alertaConfig(): BelongsTo

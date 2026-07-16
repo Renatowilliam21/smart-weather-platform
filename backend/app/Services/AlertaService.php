@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Mail\AlertaDisparadoMail;
+use App\Mail\AlertaResolvidoMail;
 use App\Models\AlertaConfig;
 use App\Models\AlertaDisparado;
 use App\Models\Leitura;
@@ -38,16 +39,42 @@ class AlertaService
                 // Só notifica se este for o INÍCIO de um novo alerta
                 // (não havia nenhum alerta ativo/não-resolvido dessa config antes)
                 if (! $jaTinhaAlertaAtivo) {
-                    $this->notificar($alertaDisparado);
+                    $this->notificarDisparo($alertaDisparado);
+                }
+            } else {
+                // Valor voltou a ficar dentro do limite: resolve automaticamente
+                // qualquer alerta ainda ativo para esta configuração.
+                $alertaAtivo = AlertaDisparado::where('alerta_config_id', $config->id)
+                    ->where('resolvido', false)
+                    ->latest()
+                    ->first();
+
+                if ($alertaAtivo) {
+                    $alertaAtivo->update([
+                        'resolvido' => true,
+                        'resolvido_em' => now(),
+                    ]);
+
+                    $this->notificarResolucao($alertaAtivo);
                 }
             }
         }
     }
 
-    private function notificar(AlertaDisparado $alertaDisparado): void
+    private function notificarDisparo(AlertaDisparado $alertaDisparado): void
     {
         $alertaDisparado->load('alertaConfig.estacao');
+        $this->enviarPara($alertaDisparado, new AlertaDisparadoMail($alertaDisparado));
+    }
 
+    private function notificarResolucao(AlertaDisparado $alertaDisparado): void
+    {
+        $alertaDisparado->load('alertaConfig.estacao');
+        $this->enviarPara($alertaDisparado, new AlertaResolvidoMail($alertaDisparado));
+    }
+
+    private function enviarPara(AlertaDisparado $alertaDisparado, $mailable): void
+    {
         $destinatarios = User::pluck('email');
 
         if ($destinatarios->isEmpty()) {
@@ -56,7 +83,7 @@ class AlertaService
 
         Mail::to($destinatarios->first())
             ->cc($destinatarios->slice(1))
-            ->send(new AlertaDisparadoMail($alertaDisparado));
+            ->send($mailable);
     }
 
     private function violaLimite(float $valor, string $operador, float $limite): bool
