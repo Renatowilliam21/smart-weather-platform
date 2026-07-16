@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use Carbon\Carbon;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 use Symfony\Component\Mailer\Bridge\Brevo\Transport\BrevoTransportFactory;
@@ -36,6 +38,12 @@ class AppServiceProvider extends ServiceProvider
             return (new BrevoTransportFactory)->create(
                 new Dsn('brevo+api', 'default', config('services.brevo.key'))
             );
+        });
+
+        RateLimiter::for('leituras', function ($request) {
+            $chave = $request->header('X-API-Token') ?: $request->ip();
+
+            return Limit::perMinute(30)->by($chave);
         });
     }
 }

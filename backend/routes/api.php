@@ -5,7 +5,7 @@ use App\Http\Controllers\Api\V1\EstacaoController;
 use App\Http\Controllers\Api\V1\LeituraController as LeituraControllerV1;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('estacao.auth')->group(function () {
+Route::middleware(['estacao.auth', 'throttle:leituras'])->group(function () {
     Route::post('/leituras', [LeituraController::class, 'store']);
 });
 
