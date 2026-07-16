@@ -22,6 +22,9 @@ Route::get('/termos-de-uso', function () {
     return view('termos-de-uso');
 })->name('termos-de-uso');
 
+Route::get('/widget/estacoes/{estacao}', [App\Http\Controllers\WidgetController::class, 'estacao'])
+    ->name('widget.estacao');
+
 Route::get('/dashboard', [App\Http\Controllers\DashboardController::class, 'index'])
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
