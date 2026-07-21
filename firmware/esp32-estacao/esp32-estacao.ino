@@ -1,3 +1,29 @@
+/***************************************************************************
+ * SMART WEATHER PLATFORM
+ * Firmware v2.2 (ESP32 WROOM-32 tradicional, GPIO21/22)
+ *
+ * Sensores suportados (deteccao automatica por chip ID + redundancia):
+ *   - DHT22 (globo negro) - sempre obrigatorio
+ *   - Ambiente (temperatura/umidade): BME280 > AHT10 > DHT22 (fallback)
+ *   - Pressao/altitude: BME280 ou BMP280 (identificado pelo chip ID)
+ *   - GUVA-S12SD (UV) e LDR (luminosidade)
+ * Modulos OPCIONAIS (detectados automaticamente no boot):
+ *   - RTC DS3231: se ausente, usa o horario do proprio servidor ao receber
+ *   - EEPROM AT24C32: se ausente, usa fila de 1 posicao na RAM (sem
+ *     persistencia contra queda de energia, mas com nova tentativa ate
+ *     conseguir enviar). Assim que a EEPROM for instalada fisicamente,
+ *     o firmware passa a usar a fila completa (~90 registros) sozinho,
+ *     sem precisar de nenhuma alteracao de codigo.
+ *
+ * v2.2: EEPROM e RTC passam a ser detectados e opcionais (evita a
+ * corrupcao silenciosa que ocorria ao tentar usar uma EEPROM inexistente
+ * - toda leitura de um endereco I2C sem dispositivo real retorna zero,
+ * o que por coincidencia matematica tambem "passava" no checksum).
+ ***************************************************************************/
+
+//==============================
+// BIBLIOTECAS
+//==============================
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <WebServer.h>
@@ -8,128 +34,258 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
+#include <Adafruit_BMP280.h>
+#include <Adafruit_AHTX0.h>
+#include <RTClib.h>
 #include <Preferences.h>
+#include <esp_task_wdt.h>
 #include <math.h>
 
-// ==================== PINOS ====================
-#define BOTAO_RESET_PIN 0
+//==============================
+// PINOS ESP32 WROOM-32 (tradicional - GPIO21 disponivel)
+//==============================
 #define DHT_PIN 4
 #define DHT_TYPE DHT22
-#define UV_PIN 34
-#define LDR_PIN 35
+#define LDR_PIN 34
+#define UV_PIN 35
+#define SDA_PIN 21
+#define SCL_PIN 22
+#define BOTAO_RESET_PIN 0
+#define ENDERECO_EEPROM_I2C 0x50
 
-// ==================== INTERVALOS ====================
-// Coleta interna frequente (nao transmite), agregacao reduz trafego e mantem
-// o envio abaixo do limite de hibernacao do Render (15 min), evitando cold-start.
-const unsigned long INTERVALO_COLETA_MS = 60000;   // 1 minuto
-const unsigned long INTERVALO_ENVIO_MS  = 600000;  // 10 minutos
+//==============================
+// WATCHDOG
+//==============================
+const int WDT_TIMEOUT_SEGUNDOS = 90;
 
+//==============================
+// FAIXAS FISICAS PLAUSIVEIS
+//==============================
+const float TEMP_MIN_VALIDA = -10.0;
+const float TEMP_MAX_VALIDA = 65.0;
+const float UMIDADE_MIN_VALIDA = 5.0;
+const float UMIDADE_MAX_VALIDA = 100.0;
+const float UV_MAX_VALIDO = 15.0;
+const float PRESSAO_MIN_VALIDA = 800.0;
+const float PRESSAO_MAX_VALIDA = 1100.0;
+
+//==============================
+// OBJETOS DE SENSOR
+//==============================
 DHT dht(DHT_PIN, DHT_TYPE);
 Adafruit_BME280 bme;
-bool bmeDisponivel = false;
+Adafruit_BMP280 bmp;
+Adafruit_AHTX0 aht;
+RTC_DS3231 rtc;
 Preferences preferencias;
 WebServer servidorAdmin(80);
 
+//==============================
+// DISPONIBILIDADE DOS SENSORES/MODULOS (detectada no boot)
+//==============================
+bool bmeDisponivel = false;
+bool bmpDisponivel = false;
+bool ahtDisponivel = false;
+bool rtcDisponivel = false;
+bool eepromDisponivel = false;
+
+bool bmeSaudavel = false;
+bool ahtSaudavel = false;
+
+String fonteAmbienteAtual = "nenhuma";
+
+//==============================
+// CONFIGURACAO SERVIDORES (LOCAL + PRODUCAO)
+//==============================
 String servidorUrlLocal, tokenLocal;
 String servidorUrlProducao, tokenProducao;
 
-String ultimoStatusLocal = "ainda nao enviado";
-String ultimoStatusProducao = "ainda nao enviado";
+String ultimoStatusLocal = "aguardando";
+String ultimoStatusProducao = "aguardando";
+
+//==============================
+// INTERVALOS
+//==============================
+const unsigned long INTERVALO_COLETA_MS = 60000;
+const unsigned long INTERVALO_AGREGACAO_MS = 600000;
+const unsigned long INTERVALO_TENTATIVA_ENVIO_MS = 60000;
 
 unsigned long ultimaColeta = 0;
-unsigned long ultimoEnvio = 0;
+unsigned long ultimaAgregacao = 0;
+unsigned long ultimaTentativaEnvio = 0;
 
-// ==================== ACUMULADORES (para calcular a media) ====================
+//==============================
+// ACUMULADORES
+//==============================
 struct Acumulador {
     double soma = 0;
-    int contagem = 0;
+    int quantidade = 0;
 
     void adicionar(float valor) {
         if (!isnan(valor)) {
             soma += valor;
-            contagem++;
+            quantidade++;
         }
     }
 
     float media() const {
-        return contagem > 0 ? (float)(soma / contagem) : NAN;
+        return quantidade > 0 ? (float)(soma / quantidade) : NAN;
     }
 
-    void resetar() {
+    void limpar() {
         soma = 0;
-        contagem = 0;
+        quantidade = 0;
     }
 };
 
-Acumulador acTempGloboNegro, acUmidGloboNegro, acTempAr, acUmidAr;
-Acumulador acPressao, acAltitude, acIndiceUV, acLuminosidade;
+Acumulador acTempGloboNegro, acUmidGloboNegro;
+Acumulador acTempAr, acUmidAr;
+Acumulador acPressao, acAltitude;
+Acumulador acUV, acLDR;
 
-// ==================== DECLARACOES ANTECIPADAS ====================
+//==============================
+// CONTADORES DE DIAGNOSTICO
+//==============================
+unsigned long leiturasDescartadasFaixa = 0;
+unsigned long registrosDescartadosChecksum = 0;
+unsigned long trocasDeFonteAmbiente = 0;
+
+//==============================
+// REGISTRO (usado tanto na fila EEPROM quanto no fallback em RAM)
+//==============================
+struct RegistroMeteorologico {
+    uint16_t ano;
+    uint8_t mes, dia, hora, minuto, segundo;
+    float tempGloboNegro, umidGloboNegro;
+    float tempAr, umidAr;
+    float pressao, altitude;
+    float indiceUV, luminosidade;
+    float ITGU, ITU;
+    bool enviado;
+    uint32_t checksum;
+};
+
+const int TAM_REGISTRO = sizeof(RegistroMeteorologico);
+const int ENDERECO_CONTROLE = 0;
+const int ENDERECO_DADOS = 32;
+const int CAPACIDADE_EEPROM_BYTES = 4096;
+const int MAX_REGISTROS = (CAPACIDADE_EEPROM_BYTES - ENDERECO_DADOS) / TAM_REGISTRO;
+
+int totalRegistros = 0;
+int proximoRegistro = 0;
+
+RegistroMeteorologico registroPendenteRAM;
+bool registroPendenteRAMValido = false;
+
+//==============================
+// PROTOTIPOS
+//==============================
+void inicializarSensores();
+byte identificarChipBmx(byte endereco);
+bool detectarEeprom();
+void coletarAmostra();
+void lerAmbiente(float &temperatura, float &umidade, float dhtTempJaLido, float dhtUmidJaLido);
+void lerPressaoAltitude(float &pressao, float &altitude);
+float lerUV();
+float lerLDR();
+bool faixaValida(float valor, float minimo, float maximo);
+void escreverEEPROM(int endereco, byte valor);
+byte lerEEPROM(int endereco);
+void salvarControleEEPROM();
+void carregarControleEEPROM();
+uint32_t calcularChecksum(const RegistroMeteorologico &r);
+void gravarRegistroPendente();
+bool lerRegistro(int indice, RegistroMeteorologico &registro);
+void gravarRegistro(int indice, RegistroMeteorologico registro);
+void tentarDrenarFila();
+String montarJSON(const RegistroMeteorologico &r);
+bool enviarParaUmServidor(const char* url, const char* token, const String& json, String& status);
+float calcularPontoOrvalho(float temperatura, float umidade);
+float calcularITGU(float temperatura, float umidade);
+float calcularITU(float temperatura, float umidade);
+String classificar(float indice);
+void carregarConfiguracao();
 void configurarWiFi();
 void configurarServidorAdmin();
-void tratarPaginaInicial();
-void tratarSalvar();
-void coletarAmostra();
-void enviarMediaAgregada();
-String montarPayloadJson();
-bool enviarParaUmServidor(const char* url, const char* token, const String& corpoJson, String& statusResultado);
-float calcularPontoDeOrvalho(float tempC, float umidadeRel);
-float calcularItgu(float tempGloboNegro, float umidade);
-float calcularItu(float tempAr, float umidade);
-String classificarIndiceTermico(float indice);
-float lerIndiceUV();
-float lerLuminosidade();
-String htmlEscapar(const String& texto);
 
-// ==================== SETUP ====================
+//====================================================
+// SETUP
+//====================================================
 void setup() {
     Serial.begin(115200);
     delay(1000);
 
     pinMode(BOTAO_RESET_PIN, INPUT_PULLUP);
 
-    preferencias.begin("estacao", false);
-    servidorUrlLocal = preferencias.getString("server_url_local", "");
-    tokenLocal = preferencias.getString("token_local", "");
-    servidorUrlProducao = preferencias.getString("server_url_prod", "");
-    tokenProducao = preferencias.getString("token_prod", "");
+    Serial.println("\n==============================");
+    Serial.println(" SMART WEATHER PLATFORM v2.2 ");
+    Serial.println(" ESP32 tradicional (GPIO21/22) ");
+    Serial.println("==============================");
 
-    dht.begin();
-    analogReadResolution(12);
+    esp_task_wdt_config_t configuracaoWdt = {
+        .timeout_ms = (uint32_t)(WDT_TIMEOUT_SEGUNDOS * 1000),
+        .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+        .trigger_panic = true,
+    };
+    esp_task_wdt_init(&configuracaoWdt);
+    esp_task_wdt_add(NULL);
+    Serial.printf("Watchdog ativo (timeout %ds).\n", WDT_TIMEOUT_SEGUNDOS);
 
-    Wire.begin(21, 22);
-    if (bme.begin(0x76)) {
-        bmeDisponivel = true;
-        Serial.println("BME280 inicializado com sucesso (0x76).");
-    } else if (bme.begin(0x77)) {
-        bmeDisponivel = true;
-        Serial.println("BME280 inicializado com sucesso (0x77).");
+    inicializarSensores();
+
+    if (eepromDisponivel) {
+        carregarControleEEPROM();
+        Serial.printf("Fila persistente ativa (EEPROM). Capacidade: %d registros.\n", MAX_REGISTROS);
     } else {
-        Serial.println("AVISO: BME280 nao encontrado. Leituras de ambiente externo serao omitidas.");
+        Serial.println("AVISO: EEPROM nao detectada. Usando buffer de 1 registro na RAM (sem protecao contra queda de energia).");
     }
 
+    carregarConfiguracao();
     configurarWiFi();
     configurarServidorAdmin();
+
+    Serial.println("Sistema pronto!");
 }
 
-// ==================== LOOP ====================
+//====================================================
+// LOOP PRINCIPAL
+//====================================================
 void loop() {
+    esp_task_wdt_reset();
+
     servidorAdmin.handleClient();
 
     if (Serial.available()) {
         String comando = Serial.readStringUntil('\n');
         comando.trim();
         if (comando == "resetar_wifi") {
-            Serial.println("Apagando WiFi salvo e reiniciando...");
             WiFiManager wm;
             wm.resetSettings();
             delay(1000);
             ESP.restart();
         }
+        if (comando == "status_fila") {
+            if (eepromDisponivel) {
+                Serial.printf("Fila (EEPROM): %d/%d | Fonte ambiente: %s | Trocas: %lu | Descartes faixa: %lu | Descartes checksum: %lu\n",
+                    totalRegistros, MAX_REGISTROS, fonteAmbienteAtual.c_str(), trocasDeFonteAmbiente,
+                    leiturasDescartadasFaixa, registrosDescartadosChecksum);
+            } else {
+                Serial.printf("Fila (RAM, sem EEPROM): %s | Fonte ambiente: %s | Trocas: %lu | Descartes faixa: %lu\n",
+                    registroPendenteRAMValido ? "1 pendente" : "vazia", fonteAmbienteAtual.c_str(),
+                    trocasDeFonteAmbiente, leiturasDescartadasFaixa);
+            }
+        }
+        if (comando == "sensores") {
+            Serial.printf("BME280: %s | BMP280: %s | AHT10: %s | RTC: %s | EEPROM: %s\n",
+                bmeDisponivel ? "sim" : "nao",
+                bmpDisponivel ? "sim" : "nao",
+                ahtDisponivel ? "sim" : "nao",
+                rtcDisponivel ? "sim" : "nao",
+                eepromDisponivel ? "sim" : "nao");
+        }
     }
 
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi desconectado. Tentando reconectar...");
         WiFi.reconnect();
         delay(5000);
         return;
@@ -142,237 +298,441 @@ void loop() {
         ultimaColeta = agora;
     }
 
-    if (agora - ultimoEnvio >= INTERVALO_ENVIO_MS || ultimoEnvio == 0) {
-        enviarMediaAgregada();
-        ultimoEnvio = agora;
+    if (agora - ultimaAgregacao >= INTERVALO_AGREGACAO_MS || ultimaAgregacao == 0) {
+        gravarRegistroPendente();
+        ultimaAgregacao = agora;
+    }
+
+    if (agora - ultimaTentativaEnvio >= INTERVALO_TENTATIVA_ENVIO_MS || ultimaTentativaEnvio == 0) {
+        tentarDrenarFila();
+        ultimaTentativaEnvio = agora;
     }
 }
 
-// ==================== WIFI (WiFiManager cuida so da rede) ====================
-void configurarWiFi() {
-    WiFiManager wm;
-    wm.setConfigPortalTimeout(180);
+//====================================================
+// SENSORES - INICIALIZACAO (deteccao automatica)
+//====================================================
 
-    if (!wm.autoConnect("EstacaoMeteo-Config")) {
-        Serial.println("Falha ao conectar WiFi. Reiniciando em 3s...");
-        delay(3000);
-        ESP.restart();
+byte identificarChipBmx(byte endereco) {
+    Wire.beginTransmission(endereco);
+    Wire.write(0xD0);
+    if (Wire.endTransmission(false) != 0) return 0;
+
+    Wire.requestFrom(endereco, (byte)1);
+    if (!Wire.available()) return 0;
+
+    return Wire.read();
+}
+
+bool detectarEeprom() {
+    Wire.beginTransmission(ENDERECO_EEPROM_I2C);
+    return Wire.endTransmission() == 0;
+}
+
+void inicializarSensores() {
+    Wire.begin(SDA_PIN, SCL_PIN);
+    dht.begin();
+    Serial.println("DHT22 configurado (sempre ativo, sem deteccao - e obrigatorio).");
+
+    byte enderecoDetectado = 0;
+    byte chipId = identificarChipBmx(0x76);
+    if (chipId != 0) {
+        enderecoDetectado = 0x76;
+    } else {
+        chipId = identificarChipBmx(0x77);
+        if (chipId != 0) enderecoDetectado = 0x77;
     }
 
-    Serial.println("WiFi conectado!");
-    Serial.print("Acesse a pagina de administracao em: http://");
-    Serial.println(WiFi.localIP());
+    if (chipId == 0x60) {
+        bmeDisponivel = bme.begin(enderecoDetectado);
+        bmeSaudavel = bmeDisponivel;
+        Serial.println(bmeDisponivel ? "BME280 encontrado (ambiente + pressao/altitude)." : "BME280 detectado (chip ID) mas falhou ao iniciar a biblioteca.");
+    } else if (chipId == 0x58) {
+        bmpDisponivel = bmp.begin(enderecoDetectado);
+        Serial.println(bmpDisponivel ? "BMP280 encontrado (pressao/altitude, sem umidade)." : "BMP280 detectado (chip ID) mas falhou ao iniciar a biblioteca.");
+    } else {
+        Serial.println("Nenhum sensor BME280/BMP280 detectado no barramento I2C.");
+    }
+
+    if (aht.begin()) {
+        ahtDisponivel = true;
+        ahtSaudavel = true;
+        Serial.println("AHT10 encontrado (ambiente, backup do BME280).");
+    } else {
+        Serial.println("AHT10 nao encontrado.");
+    }
+
+    rtcDisponivel = rtc.begin();
+    if (rtcDisponivel) {
+        Serial.println("RTC DS3231 encontrado (0x68).");
+        if (rtc.lostPower()) {
+            Serial.println("RTC sem hora valida: ajustando pelo horario de compilacao.");
+            rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+        }
+    } else {
+        Serial.println("RTC nao encontrado. O horario da leitura sera definido pelo servidor ao receber (registrado_em nao sera enviado pelo firmware).");
+    }
+
+    eepromDisponivel = detectarEeprom();
+    Serial.println(eepromDisponivel ? "EEPROM AT24C32 encontrada (0x50)." : "EEPROM nao encontrada.");
+
+    if (!bmeDisponivel && !bmpDisponivel && !ahtDisponivel) {
+        Serial.println("AVISO: nenhum sensor de ambiente/pressao encontrado. Temperatura do ar sera obtida do DHT22 (globo negro) como fallback.");
+    }
+
+    analogReadResolution(12);
+    analogSetAttenuation(ADC_11db);
 }
 
-// ==================== PAGINA DE ADMINISTRACAO ====================
-String htmlEscapar(const String& texto) {
-    String resultado = texto;
-    resultado.replace("&", "&amp;");
-    resultado.replace("\"", "&quot;");
-    resultado.replace("<", "&lt;");
-    resultado.replace(">", "&gt;");
-    return resultado;
+//====================================================
+// LEITURA DE AMBIENTE COM REDUNDANCIA EM TEMPO REAL
+//====================================================
+void lerAmbiente(float &temperatura, float &umidade, float dhtTempJaLido, float dhtUmidJaLido) {
+    temperatura = NAN;
+    umidade = NAN;
+    String fonteEscolhida = "nenhuma";
+
+    if (bmeDisponivel) {
+        float t = bme.readTemperature();
+        float u = bme.readHumidity();
+
+        if (faixaValida(t, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) && faixaValida(u, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+            temperatura = t;
+            umidade = u;
+            fonteEscolhida = "BME280";
+            bmeSaudavel = true;
+        } else {
+            if (bmeSaudavel) {
+                Serial.println("AVISO: BME280 parou de responder corretamente. Alternando para sensor de backup.");
+            }
+            bmeSaudavel = false;
+        }
+    }
+
+    if (isnan(temperatura) && ahtDisponivel) {
+        sensors_event_t evUmid, evTemp;
+        aht.getEvent(&evUmid, &evTemp);
+
+        if (faixaValida(evTemp.temperature, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) &&
+            faixaValida(evUmid.relative_humidity, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+            temperatura = evTemp.temperature;
+            umidade = evUmid.relative_humidity;
+            fonteEscolhida = "AHT10";
+            ahtSaudavel = true;
+        } else {
+            ahtSaudavel = false;
+        }
+    }
+
+    if (isnan(temperatura)) {
+        if (faixaValida(dhtTempJaLido, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) && faixaValida(dhtUmidJaLido, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+            temperatura = dhtTempJaLido;
+            umidade = dhtUmidJaLido;
+            fonteEscolhida = "DHT22 (fallback)";
+        }
+    }
+
+    if (fonteEscolhida != fonteAmbienteAtual) {
+        Serial.printf("Fonte de ambiente: %s -> %s\n", fonteAmbienteAtual.c_str(), fonteEscolhida.c_str());
+        trocasDeFonteAmbiente++;
+        fonteAmbienteAtual = fonteEscolhida;
+    }
 }
 
-void configurarServidorAdmin() {
-    servidorAdmin.on("/", HTTP_GET, tratarPaginaInicial);
-    servidorAdmin.on("/salvar", HTTP_POST, tratarSalvar);
-    servidorAdmin.begin();
-    Serial.println("Servidor de administracao iniciado.");
+//====================================================
+// LEITURA DE PRESSAO/ALTITUDE (BME280 ou BMP280)
+//====================================================
+void lerPressaoAltitude(float &pressao, float &altitude) {
+    pressao = NAN;
+    altitude = NAN;
+
+    if (bmeDisponivel && bmeSaudavel) {
+        pressao = bme.readPressure() / 100.0F;
+        altitude = bme.readAltitude(1013.25);
+    } else if (bmpDisponivel) {
+        pressao = bmp.readPressure() / 100.0F;
+        altitude = bmp.readAltitude(1013.25);
+    }
+
+    if (!isnan(pressao) && !faixaValida(pressao, PRESSAO_MIN_VALIDA, PRESSAO_MAX_VALIDA)) {
+        pressao = NAN;
+        altitude = NAN;
+    }
 }
 
-void tratarPaginaInicial() {
-    String html = "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='UTF-8'>";
-    html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-    html += "<title>Estacao Meteorologica - Config</title>";
-    html += "<style>";
-    html += "body{font-family:Arial,sans-serif;max-width:600px;margin:2rem auto;padding:0 1rem;background:#f4f4f4;}";
-    html += "h1{font-size:1.3rem;} .card{background:#fff;border-radius:8px;padding:1.5rem;margin-bottom:1rem;box-shadow:0 1px 3px rgba(0,0,0,.1);}";
-    html += "label{display:block;font-weight:bold;margin-top:1rem;font-size:.9rem;}";
-    html += "input{width:100%;padding:.5rem;margin-top:.3rem;box-sizing:border-box;border:1px solid #ccc;border-radius:4px;}";
-    html += "button{margin-top:1.5rem;padding:.7rem 1.5rem;background:#1f2937;color:#fff;border:none;border-radius:4px;cursor:pointer;}";
-    html += ".status{font-size:.85rem;color:#555;}";
-    html += "</style></head><body>";
-    html += "<h1>Estacao Meteorologica &mdash; Administracao</h1>";
-
-    html += "<div class='card status'>";
-    html += "<strong>Status atual</strong><br>";
-    html += "IP da estacao: " + WiFi.localIP().toString() + "<br>";
-    html += "Amostras acumuladas: " + String(acIndiceUV.contagem) + "<br>";
-    html += "Ultimo envio local: " + htmlEscapar(ultimoStatusLocal) + "<br>";
-    html += "Ultimo envio producao: " + htmlEscapar(ultimoStatusProducao);
-    html += "</div>";
-
-    html += "<form class='card' method='POST' action='/salvar'>";
-    html += "<strong>Configuracao dos servidores</strong>";
-
-    html += "<label>URL do servidor LOCAL</label>";
-    html += "<input name='local_url' value='" + htmlEscapar(servidorUrlLocal) + "'>";
-
-    html += "<label>Token da estacao LOCAL</label>";
-    html += "<input name='local_token' value='" + htmlEscapar(tokenLocal) + "'>";
-
-    html += "<label>URL do servidor de PRODUCAO</label>";
-    html += "<input name='prod_url' value='" + htmlEscapar(servidorUrlProducao) + "'>";
-
-    html += "<label>Token da estacao de PRODUCAO</label>";
-    html += "<input name='prod_token' value='" + htmlEscapar(tokenProducao) + "'>";
-
-    html += "<button type='submit'>Salvar configuracao</button>";
-    html += "</form>";
-
-    html += "</body></html>";
-
-    servidorAdmin.send(200, "text/html; charset=utf-8", html);
+float lerUV() {
+    float tensao = (analogRead(UV_PIN) * 3.3) / 4095.0;
+    float uv = tensao / 0.1;
+    return max(0.0f, uv);
 }
 
-void tratarSalvar() {
-    servidorUrlLocal = servidorAdmin.arg("local_url");
-    tokenLocal = servidorAdmin.arg("local_token");
-    servidorUrlProducao = servidorAdmin.arg("prod_url");
-    tokenProducao = servidorAdmin.arg("prod_token");
-
-    preferencias.putString("server_url_local", servidorUrlLocal);
-    preferencias.putString("token_local", tokenLocal);
-    preferencias.putString("server_url_prod", servidorUrlProducao);
-    preferencias.putString("token_prod", tokenProducao);
-
-    String html = "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='UTF-8'>";
-    html += "<meta http-equiv='refresh' content='2;url=/'>";
-    html += "<style>body{font-family:Arial,sans-serif;text-align:center;margin-top:3rem;}</style>";
-    html += "</head><body><h2>Configuracao salva com sucesso!</h2>";
-    html += "<p>Redirecionando...</p></body></html>";
-
-    servidorAdmin.send(200, "text/html; charset=utf-8", html);
-
-    Serial.println("Configuracao atualizada via pagina de administracao:");
-    Serial.println("  Local: " + servidorUrlLocal);
-    Serial.println("  Producao: " + servidorUrlProducao);
+float lerLDR() {
+    return map(analogRead(LDR_PIN), 0, 4095, 100, 0);
 }
 
-// ==================== CALCULOS ====================
-float calcularPontoDeOrvalho(float tempC, float umidadeRel) {
-    float a = 17.27;
-    float b = 237.7;
-    float alpha = ((a * tempC) / (b + tempC)) + log(umidadeRel / 100.0);
-    return (b * alpha) / (a - alpha);
+bool faixaValida(float valor, float minimo, float maximo) {
+    return !isnan(valor) && valor >= minimo && valor <= maximo;
 }
 
-float calcularItgu(float tempGloboNegro, float umidade) {
-    float pontoOrvalho = calcularPontoDeOrvalho(tempGloboNegro, umidade);
-    return tempGloboNegro + (0.36 * pontoOrvalho) + 41.5;
-}
-
-float calcularItu(float tempAr, float umidade) {
-    float pontoOrvalho = calcularPontoDeOrvalho(tempAr, umidade);
-    return tempAr + (0.36 * pontoOrvalho) + 41.5;
-}
-
-String classificarIndiceTermico(float indice) {
-    if (indice > 78.0) return "perigo";
-    if (indice > 72.0) return "alerta";
-    return "normal";
-}
-
-float lerIndiceUV() {
-    int leituraBruta = analogRead(UV_PIN);
-    float tensao = (leituraBruta / 4095.0) * 3.3;
-    float indiceUV = tensao / 0.1;
-    return max(0.0f, indiceUV);
-}
-
-float lerLuminosidade() {
-    int leituraBruta = analogRead(LDR_PIN);
-    return (leituraBruta / 4095.0) * 100.0;
-}
-
-// ==================== COLETA (acumula, nao transmite) ====================
+//====================================================
+// COLETA DE UMA AMOSTRA (a cada 1 minuto)
+//====================================================
 void coletarAmostra() {
     float tempGloboNegro = dht.readTemperature();
     float umidGloboNegro = dht.readHumidity();
 
     if (isnan(tempGloboNegro) || isnan(umidGloboNegro)) {
-        Serial.println("Falha ao ler o DHT22 nesta amostra. Ignorando.");
+        Serial.println("Falha ao ler DHT22 (globo negro) nesta amostra. Ignorando.");
+    } else if (!faixaValida(tempGloboNegro, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) ||
+               !faixaValida(umidGloboNegro, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+        Serial.printf("DHT22 (globo negro) fora da faixa plausivel (temp=%.1f umid=%.1f). Descartando amostra.\n", tempGloboNegro, umidGloboNegro);
+        leiturasDescartadasFaixa++;
     } else {
         acTempGloboNegro.adicionar(tempGloboNegro);
         acUmidGloboNegro.adicionar(umidGloboNegro);
     }
 
-    acIndiceUV.adicionar(lerIndiceUV());
-    acLuminosidade.adicionar(lerLuminosidade());
-
-    if (bmeDisponivel) {
-        acTempAr.adicionar(bme.readTemperature());
-        acUmidAr.adicionar(bme.readHumidity());
-        acPressao.adicionar(bme.readPressure() / 100.0F);
-        acAltitude.adicionar(bme.readAltitude(1013.25));
+    float tempAr, umidAr;
+    lerAmbiente(tempAr, umidAr, tempGloboNegro, umidGloboNegro);
+    if (!isnan(tempAr)) {
+        acTempAr.adicionar(tempAr);
+        acUmidAr.adicionar(umidAr);
+    } else {
+        leiturasDescartadasFaixa++;
     }
 
-    Serial.printf("Amostra coletada (%d acumuladas)\n", acIndiceUV.contagem);
+    float pressao, altitude;
+    lerPressaoAltitude(pressao, altitude);
+    if (!isnan(pressao)) {
+        acPressao.adicionar(pressao);
+        acAltitude.adicionar(altitude);
+    }
+
+    float uv = lerUV();
+    if (faixaValida(uv, 0.0, UV_MAX_VALIDO)) {
+        acUV.adicionar(uv);
+    } else {
+        leiturasDescartadasFaixa++;
+    }
+
+    acLDR.adicionar(lerLDR());
+
+    Serial.printf("Amostra coletada (%d acumuladas | ambiente via %s)\n", acUV.quantidade, fonteAmbienteAtual.c_str());
 }
 
-// ==================== MONTA O JSON (compartilhado pelos dois envios) ====================
-String montarPayloadJson() {
-    float tempGloboNegro = acTempGloboNegro.media();
-    float umidGloboNegro = acUmidGloboNegro.media();
-    float indiceUV = acIndiceUV.media();
-    float luminosidade = acLuminosidade.media();
+//====================================================
+// CALCULOS (Buffington)
+//====================================================
+float calcularPontoOrvalho(float temperatura, float umidade) {
+    float a = 17.27, b = 237.7;
+    float alpha = ((a * temperatura) / (b + temperatura)) + log(umidade / 100.0);
+    return (b * alpha) / (a - alpha);
+}
 
-    float itgu = NAN, itu = NAN;
-    String itguClassificacao = "", ituClassificacao = "";
+float calcularITGU(float temperatura, float umidade) {
+    return temperatura + (0.36 * calcularPontoOrvalho(temperatura, umidade)) + 41.5;
+}
 
-    if (!isnan(tempGloboNegro) && !isnan(umidGloboNegro)) {
-        itgu = calcularItgu(tempGloboNegro, umidGloboNegro);
-        itguClassificacao = classificarIndiceTermico(itgu);
+float calcularITU(float temperatura, float umidade) {
+    return temperatura + (0.36 * calcularPontoOrvalho(temperatura, umidade)) + 41.5;
+}
+
+String classificar(float indice) {
+    if (isnan(indice)) return "";
+    if (indice > 78.0) return "perigo";
+    if (indice > 72.0) return "alerta";
+    return "normal";
+}
+
+//====================================================
+// EEPROM - LEITURA/ESCRITA BRUTA (AT24C32, endereco I2C 0x50)
+//====================================================
+void escreverEEPROM(int endereco, byte valor) {
+    Wire.beginTransmission(ENDERECO_EEPROM_I2C);
+    Wire.write(endereco >> 8);
+    Wire.write(endereco & 0xFF);
+    Wire.write(valor);
+    Wire.endTransmission();
+    delay(5);
+}
+
+byte lerEEPROM(int endereco) {
+    Wire.beginTransmission(ENDERECO_EEPROM_I2C);
+    Wire.write(endereco >> 8);
+    Wire.write(endereco & 0xFF);
+    Wire.endTransmission();
+    Wire.requestFrom(ENDERECO_EEPROM_I2C, 1);
+    return Wire.available() ? Wire.read() : 0;
+}
+
+void salvarControleEEPROM() {
+    Wire.beginTransmission(ENDERECO_EEPROM_I2C);
+    Wire.write(0);
+    Wire.write((totalRegistros >> 8) & 0xFF);
+    Wire.write(totalRegistros & 0xFF);
+    Wire.write((proximoRegistro >> 8) & 0xFF);
+    Wire.write(proximoRegistro & 0xFF);
+    Wire.endTransmission();
+    delay(5);
+}
+
+void carregarControleEEPROM() {
+    totalRegistros = (lerEEPROM(0) << 8) | lerEEPROM(1);
+    proximoRegistro = (lerEEPROM(2) << 8) | lerEEPROM(3);
+
+    if (totalRegistros > MAX_REGISTROS || totalRegistros < 0) {
+        totalRegistros = 0;
+        proximoRegistro = 0;
     }
 
-    float tempAr = acTempAr.media();
-    float umidAr = acUmidAr.media();
-    float pressao = acPressao.media();
-    float altitude = acAltitude.media();
+    Serial.printf("Fila recuperada da EEPROM: %d registros pendentes/historicos.\n", totalRegistros);
+}
 
-    if (bmeDisponivel && !isnan(tempAr) && !isnan(umidAr)) {
-        itu = calcularItu(tempAr, umidAr);
-        ituClassificacao = classificarIndiceTermico(itu);
+uint32_t calcularChecksum(const RegistroMeteorologico &r) {
+    const byte *dados = (const byte *)&r;
+    int tamanhoSemChecksum = TAM_REGISTRO - sizeof(uint32_t);
+
+    uint32_t soma = 0;
+    for (int i = 0; i < tamanhoSemChecksum; i++) {
+        soma = (soma * 31) + dados[i];
+    }
+    return soma;
+}
+
+void gravarRegistro(int indice, RegistroMeteorologico registro) {
+    registro.checksum = calcularChecksum(registro);
+
+    int endereco = ENDERECO_DADOS + (indice * TAM_REGISTRO);
+    const byte *dados = (const byte *)&registro;
+    for (int i = 0; i < TAM_REGISTRO; i++) {
+        escreverEEPROM(endereco + i, dados[i]);
+    }
+}
+
+bool lerRegistro(int indice, RegistroMeteorologico &registro) {
+    int endereco = ENDERECO_DADOS + (indice * TAM_REGISTRO);
+    byte *dados = (byte *)&registro;
+    for (int i = 0; i < TAM_REGISTRO; i++) {
+        dados[i] = lerEEPROM(endereco + i);
     }
 
-    JsonDocument payload;
-    if (!isnan(tempGloboNegro)) payload["temp_globo_negro"] = tempGloboNegro;
-    if (!isnan(umidGloboNegro)) payload["umid_globo_negro"] = umidGloboNegro;
-    payload["indice_uv"] = indiceUV;
-    payload["luminosidade"] = luminosidade;
-    if (!isnan(itgu)) {
-        payload["itgu"] = itgu;
-        payload["itgu_classificacao"] = itguClassificacao;
-    }
-    payload["tipo_agregacao"] = "agregado";
+    return registro.checksum == calcularChecksum(registro);
+}
 
-    if (bmeDisponivel && !isnan(tempAr)) {
-        payload["temperatura_ar"] = tempAr;
-        payload["umidade_ar"] = umidAr;
-        payload["pressao"] = pressao;
-        payload["altitude"] = altitude;
-        if (!isnan(itu)) {
-            payload["itu"] = itu;
-            payload["itu_classificacao"] = ituClassificacao;
+//====================================================
+// GRAVA A MEDIA DO CICLO (na EEPROM se disponivel, senao na RAM)
+//====================================================
+void gravarRegistroPendente() {
+    if (acUV.quantidade == 0) {
+        Serial.println("Nenhuma amostra acumulada. Pulando agregacao deste ciclo.");
+        return;
+    }
+
+    RegistroMeteorologico registro = {};
+
+    if (rtcDisponivel) {
+        DateTime agora = rtc.now();
+        registro.ano = agora.year();
+        registro.mes = agora.month();
+        registro.dia = agora.day();
+        registro.hora = agora.hour();
+        registro.minuto = agora.minute();
+        registro.segundo = agora.second();
+    }
+
+    registro.tempGloboNegro = acTempGloboNegro.media();
+    registro.umidGloboNegro = acUmidGloboNegro.media();
+    registro.tempAr = acTempAr.media();
+    registro.umidAr = acUmidAr.media();
+    registro.pressao = acPressao.media();
+    registro.altitude = acAltitude.media();
+    registro.indiceUV = acUV.media();
+    registro.luminosidade = acLDR.media();
+
+    registro.ITGU = (!isnan(registro.tempGloboNegro) && !isnan(registro.umidGloboNegro))
+        ? calcularITGU(registro.tempGloboNegro, registro.umidGloboNegro) : NAN;
+
+    registro.ITU = (!isnan(registro.tempAr) && !isnan(registro.umidAr))
+        ? calcularITU(registro.tempAr, registro.umidAr) : NAN;
+
+    registro.enviado = false;
+
+    if (eepromDisponivel) {
+        int indice = proximoRegistro;
+        gravarRegistro(indice, registro);
+
+        proximoRegistro = (proximoRegistro + 1) % MAX_REGISTROS;
+        if (totalRegistros < MAX_REGISTROS) {
+            totalRegistros++;
         }
+        salvarControleEEPROM();
+
+        Serial.printf("Registro persistido na fila EEPROM (indice %d). Total pendentes/historico: %d\n", indice, totalRegistros);
+    } else {
+        registroPendenteRAM = registro;
+        registroPendenteRAMValido = true;
+        Serial.println("Registro guardado no buffer RAM (sem EEPROM disponivel).");
     }
 
-    String corpoJson;
-    serializeJson(payload, corpoJson);
-    return corpoJson;
+    acTempGloboNegro.limpar();
+    acUmidGloboNegro.limpar();
+    acTempAr.limpar();
+    acUmidAr.limpar();
+    acPressao.limpar();
+    acAltitude.limpar();
+    acUV.limpar();
+    acLDR.limpar();
 }
 
-// ==================== ENVIO PARA UM DESTINO ====================
-bool enviarParaUmServidor(const char* url, const char* token, const String& corpoJson, String& statusResultado) {
+//====================================================
+// MONTA O JSON NO FORMATO ESPERADO PELA API LARAVEL
+//====================================================
+String montarJSON(const RegistroMeteorologico &r) {
+    JsonDocument json;
+
+    if (!isnan(r.tempGloboNegro)) json["temp_globo_negro"] = r.tempGloboNegro;
+    if (!isnan(r.umidGloboNegro)) json["umid_globo_negro"] = r.umidGloboNegro;
+    if (!isnan(r.tempAr)) json["temperatura_ar"] = r.tempAr;
+    if (!isnan(r.umidAr)) json["umidade_ar"] = r.umidAr;
+    if (!isnan(r.pressao)) json["pressao"] = r.pressao;
+    if (!isnan(r.altitude)) json["altitude"] = r.altitude;
+    json["indice_uv"] = r.indiceUV;
+    json["luminosidade"] = r.luminosidade;
+
+    if (!isnan(r.ITGU)) {
+        json["itgu"] = r.ITGU;
+        json["itgu_classificacao"] = classificar(r.ITGU);
+    }
+    if (!isnan(r.ITU)) {
+        json["itu"] = r.ITU;
+        json["itu_classificacao"] = classificar(r.ITU);
+    }
+
+    json["tipo_agregacao"] = "agregado";
+
+    if (r.ano > 0) {
+        char timestamp[20];
+        snprintf(timestamp, sizeof(timestamp), "%04d-%02d-%02d %02d:%02d:%02d",
+                 r.ano, r.mes, r.dia, r.hora, r.minuto, r.segundo);
+        json["registrado_em"] = timestamp;
+    }
+
+    String saida;
+    serializeJson(json, saida);
+    return saida;
+}
+
+//====================================================
+// ENVIO HTTP PARA UM DESTINO
+//====================================================
+bool enviarParaUmServidor(const char* url, const char* token, const String& json, String& status) {
     if (strlen(url) == 0 || strlen(token) == 0) {
-        statusResultado = "nao configurado";
+        status = "nao configurado";
         return true;
     }
 
     HTTPClient http;
     WiFiClientSecure clienteSeguro;
-
     bool usarHttps = String(url).startsWith("https://");
 
     if (usarHttps) {
@@ -387,54 +747,161 @@ bool enviarParaUmServidor(const char* url, const char* token, const String& corp
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-API-Token", token);
 
-    Serial.printf("Enviando para %s\n", url);
+    int codigo = http.POST(json);
+    bool sucesso = codigo >= 200 && codigo < 300;
 
-    int codigoResposta = http.POST(corpoJson);
-    bool sucesso = codigoResposta >= 200 && codigoResposta < 300;
+    status = sucesso
+        ? ("HTTP " + String(codigo) + " OK")
+        : ("erro: " + (codigo > 0 ? String(codigo) : http.errorToString(codigo)));
 
-    if (codigoResposta > 0) {
-        Serial.printf("Resposta HTTP %d: %s\n", codigoResposta, http.getString().c_str());
-        statusResultado = "HTTP " + String(codigoResposta) + " em " + String(millis() / 1000) + "s de uptime";
-    } else {
-        Serial.printf("Erro no envio: %s\n", http.errorToString(codigoResposta).c_str());
-        statusResultado = "erro: " + http.errorToString(codigoResposta);
-    }
+    Serial.printf("[%s] %s\n", url, status.c_str());
 
     http.end();
     return sucesso;
 }
 
-// ==================== ORQUESTRA O ENVIO PARA OS DOIS DESTINOS ====================
-void enviarMediaAgregada() {
-    if (acIndiceUV.contagem == 0) {
-        Serial.println("Nenhuma amostra acumulada ainda. Pulando envio.");
-        return;
-    }
+//====================================================
+// TENTA ENVIAR O REGISTRO PENDENTE MAIS ANTIGO
+//====================================================
+void tentarDrenarFila() {
+    if (eepromDisponivel) {
+        if (totalRegistros == 0) return;
 
-    String corpoJson = montarPayloadJson();
+        int indiceMaisAntigo = (proximoRegistro - totalRegistros + MAX_REGISTROS) % MAX_REGISTROS;
 
-    Serial.println("--- Enviando media agregada ---");
-    Serial.printf("Amostras acumuladas: %d\n", acIndiceUV.contagem);
+        RegistroMeteorologico registro;
+        bool integro = lerRegistro(indiceMaisAntigo, registro);
 
-    Serial.println("[LOCAL]");
-    bool sucessoLocal = enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), corpoJson, ultimoStatusLocal);
+        if (!integro) {
+            Serial.printf("Registro no indice %d esta corrompido (checksum invalido). Descartando.\n", indiceMaisAntigo);
+            registrosDescartadosChecksum++;
+            totalRegistros--;
+            salvarControleEEPROM();
+            return;
+        }
 
-    Serial.println("[PRODUCAO]");
-    bool sucessoProducao = enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), corpoJson, ultimoStatusProducao);
+        if (registro.enviado) {
+            totalRegistros--;
+            salvarControleEEPROM();
+            return;
+        }
 
-    // So limpa os acumuladores se AMBOS os envios (os que estao configurados)
-    // tiverem sucesso, evitando perder dados de um destino por falha no outro.
-    if (sucessoLocal && sucessoProducao) {
-        acTempGloboNegro.resetar();
-        acUmidGloboNegro.resetar();
-        acTempAr.resetar();
-        acUmidAr.resetar();
-        acPressao.resetar();
-        acAltitude.resetar();
-        acIndiceUV.resetar();
-        acLuminosidade.resetar();
-        Serial.println("Acumuladores zerados (envio confirmado nos dois destinos).");
+        String json = montarJSON(registro);
+        Serial.println("Tentando enviar registro pendente da fila (EEPROM)...");
+
+        bool sucessoLocal = enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), json, ultimoStatusLocal);
+        bool sucessoProducao = enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), json, ultimoStatusProducao);
+
+        if (sucessoLocal && sucessoProducao) {
+            registro.enviado = true;
+            gravarRegistro(indiceMaisAntigo, registro);
+            totalRegistros--;
+            salvarControleEEPROM();
+            Serial.printf("Registro enviado com sucesso. Restam %d na fila.\n", totalRegistros);
+        } else {
+            Serial.println("Falha no envio. Registro permanece na fila para nova tentativa.");
+        }
     } else {
-        Serial.println("Pelo menos um envio falhou. Amostras mantidas para nova tentativa.");
+        if (!registroPendenteRAMValido) return;
+
+        String json = montarJSON(registroPendenteRAM);
+        Serial.println("Tentando enviar registro pendente do buffer RAM...");
+
+        bool sucessoLocal = enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), json, ultimoStatusLocal);
+        bool sucessoProducao = enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), json, ultimoStatusProducao);
+
+        if (sucessoLocal && sucessoProducao) {
+            registroPendenteRAMValido = false;
+            Serial.println("Registro (RAM) enviado com sucesso.");
+        } else {
+            Serial.println("Falha no envio. Registro (RAM) permanece para nova tentativa.");
+        }
     }
+}
+
+//====================================================
+// CONFIGURACAO (WiFi + Preferences)
+//====================================================
+void carregarConfiguracao() {
+    preferencias.begin("estacao", false);
+    servidorUrlLocal = preferencias.getString("server_local", "");
+    tokenLocal = preferencias.getString("token_local", "");
+    servidorUrlProducao = preferencias.getString("server_prod", "");
+    tokenProducao = preferencias.getString("token_prod", "");
+}
+
+void configurarWiFi() {
+    WiFiManager wm;
+    wm.setConfigPortalTimeout(180);
+
+    if (!wm.autoConnect("EstacaoMeteo-Config")) {
+        Serial.println("Falha ao conectar WiFi. Reiniciando em 3s...");
+        delay(3000);
+        ESP.restart();
+    }
+
+    Serial.print("WiFi conectado! Acesse a pagina de administracao em: http://");
+    Serial.println(WiFi.localIP());
+}
+
+//====================================================
+// PAGINA DE ADMINISTRACAO
+//====================================================
+void configurarServidorAdmin() {
+    servidorAdmin.on("/", HTTP_GET, []() {
+        String html = "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='UTF-8'>";
+        html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+        html += "<title>Estacao Meteorologica - Config</title>";
+        html += "<style>body{font-family:Arial,sans-serif;max-width:600px;margin:2rem auto;padding:0 1rem;background:#f4f4f4;}";
+        html += ".card{background:#fff;border-radius:8px;padding:1.5rem;margin-bottom:1rem;box-shadow:0 1px 3px rgba(0,0,0,.1);}";
+        html += "label{display:block;font-weight:bold;margin-top:1rem;font-size:.9rem;}";
+        html += "input{width:100%;padding:.5rem;margin-top:.3rem;box-sizing:border-box;border:1px solid #ccc;border-radius:4px;}";
+        html += "button{margin-top:1.5rem;padding:.7rem 1.5rem;background:#1f2937;color:#fff;border:none;border-radius:4px;cursor:pointer;}";
+        html += ".status{font-size:.85rem;color:#555;}</style></head><body>";
+        html += "<h1>Estacao Meteorologica &mdash; Administracao</h1>";
+
+        html += "<div class='card status'><strong>Status atual</strong><br>";
+        html += "IP: " + WiFi.localIP().toString() + "<br>";
+        if (eepromDisponivel) {
+            html += "Fila pendente (EEPROM): " + String(totalRegistros) + " / " + String(MAX_REGISTROS) + "<br>";
+        } else {
+            html += "Fila (RAM, sem EEPROM): " + String(registroPendenteRAMValido ? "1 pendente" : "vazia") + "<br>";
+        }
+        html += "Sensores: BME280=" + String(bmeDisponivel ? "sim" : "nao");
+        html += " | BMP280=" + String(bmpDisponivel ? "sim" : "nao");
+        html += " | AHT10=" + String(ahtDisponivel ? "sim" : "nao");
+        html += " | RTC=" + String(rtcDisponivel ? "sim" : "nao");
+        html += " | EEPROM=" + String(eepromDisponivel ? "sim" : "nao") + "<br>";
+        html += "Fonte de ambiente atual: " + fonteAmbienteAtual + "<br>";
+        html += "Descartes (faixa invalida): " + String(leiturasDescartadasFaixa) + "<br>";
+        html += "Ultimo envio local: " + ultimoStatusLocal + "<br>";
+        html += "Ultimo envio producao: " + ultimoStatusProducao + "</div>";
+
+        html += "<form class='card' method='POST' action='/salvar'><strong>Servidores</strong>";
+        html += "<label>URL do servidor LOCAL</label><input name='local_url' value='" + servidorUrlLocal + "'>";
+        html += "<label>Token da estacao LOCAL</label><input name='local_token' value='" + tokenLocal + "'>";
+        html += "<label>URL do servidor de PRODUCAO</label><input name='prod_url' value='" + servidorUrlProducao + "'>";
+        html += "<label>Token da estacao de PRODUCAO</label><input name='prod_token' value='" + tokenProducao + "'>";
+        html += "<button type='submit'>Salvar configuracao</button></form>";
+
+        html += "</body></html>";
+        servidorAdmin.send(200, "text/html; charset=utf-8", html);
+    });
+
+    servidorAdmin.on("/salvar", HTTP_POST, []() {
+        servidorUrlLocal = servidorAdmin.arg("local_url");
+        tokenLocal = servidorAdmin.arg("local_token");
+        servidorUrlProducao = servidorAdmin.arg("prod_url");
+        tokenProducao = servidorAdmin.arg("prod_token");
+
+        preferencias.putString("server_local", servidorUrlLocal);
+        preferencias.putString("token_local", tokenLocal);
+        preferencias.putString("server_prod", servidorUrlProducao);
+        preferencias.putString("token_prod", tokenProducao);
+
+        servidorAdmin.sendHeader("Location", "/");
+        servidorAdmin.send(303);
+    });
+
+    servidorAdmin.begin();
 }
