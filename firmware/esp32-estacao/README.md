@@ -90,3 +90,71 @@ Classificação: normal (≤72), alerta (72-78), perigo (>78).
   - Coleta a cada 1 min, agregação (média) e envio a cada 10 min
   - Timeout estendido (60s) para tolerar cold-start do servidor de produção
   - Preservação de dados em caso de falha de envio
+- v2.1/v2.2 (jul/2026): suporte a múltiplos sensores com detecção automática —
+  - BME280 > AHT10 > DHT22 (fallback) para temperatura/umidade do ar, com
+    redundância em tempo real (troca de fonte se o sensor ativo parar)
+  - BME280 ou BMP280 para pressão/altitude, identificados pelo registrador
+    de chip ID (0xD0), evitando confundir os dois sensores
+  - Watchdog Timer e validação de faixa física dos sensores
+  - RTC e EEPROM agora opcionais: detectados automaticamente no boot. Sem
+    EEPROM, usa buffer de 1 registro na RAM; assim que instalada, passa a
+    usar a fila persistente completa (~90 registros) sem alteração de código
+
+## API — Endpoint e payload
+
+### Endpoint
+URLs:
+- Local: `http://<IP_DO_SERVIDOR>:8000/api/leituras`
+- Produção: `https://smart-weather-platform.onrender.com/api/leituras`
+
+### Headers obrigatórios
+### Exemplo de payload
+
+```json
+{
+  "temp_globo_negro": 27.18,
+  "umid_globo_negro": 58.88,
+  "temperatura_ar": 27.18,
+  "umidade_ar": 58.88,
+  "pressao": 979.84,
+  "altitude": 281.98,
+  "indice_uv": 2.45,
+  "luminosidade": 67,
+  "itgu": 75.31,
+  "itgu_classificacao": "alerta",
+  "itu": 75.31,
+  "itu_classificacao": "alerta",
+  "tipo_agregacao": "agregado"
+}
+```
+
+Quando não há BME280/AHT10, `temp_globo_negro`/`umid_globo_negro` (DHT22) e
+`temperatura_ar`/`umidade_ar` (fallback, também do DHT22) coincidem. Com um
+sensor de ambiente dedicado, esses dois pares normalmente diferem.
+
+### Campos opcionais (dependem do hardware detectado)
+
+| Campo | Aparece quando... |
+|---|---|
+| `pressao` / `altitude` | BME280 ou BMP280 detectado e funcionando |
+| `itgu` / `itgu_classificacao` | DHT22 (globo negro) leu com sucesso |
+| `itu` / `itu_classificacao` | Algum sensor de ambiente leu com sucesso |
+| `registrado_em` | Só se o RTC estiver presente (`YYYY-MM-DD HH:MM:SS`); senão, o servidor usa o horário de recebimento |
+
+### Resposta de sucesso
+
+```json
+{
+  "message": "Leitura registrada com sucesso.",
+  "leitura_id": 2156
+}
+```
+`HTTP 201 Created`
+
+### Outras respostas possíveis
+
+| Código | Situação |
+|---|---|
+| 401 | Token inválido ou estação inativa |
+| 422 | Payload malformado ou campo com tipo errado |
+| 429 | Mais de 30 requisições/minuto desse token |
