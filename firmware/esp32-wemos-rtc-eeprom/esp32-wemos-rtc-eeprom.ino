@@ -1,13 +1,21 @@
 /***************************************************************************
  * SMART WEATHER PLATFORM
- * Firmware v1.1 (ESP32 WROOM-32 / WeMos com RTC + EEPROM)
+ * Firmware v2.2 (ESP32 WROOM-32 / WeMos, GPIO18/22 - sem GPIO21 disponivel)
  *
- * Sensores: DHT22 (globo negro), AHT10 (ambiente), GUVA-S12SD (UV), LDR
- * Modulos: RTC DS3231, EEPROM AT24C32
+ * Sensores suportados (deteccao automatica por chip ID + redundancia):
+ *   - DHT22 (globo negro) - sempre obrigatorio
+ *   - Ambiente (temperatura/umidade): BME280 > AHT10 > DHT22 (fallback)
+ *   - Pressao/altitude: BME280 ou BMP280 (identificado pelo chip ID)
+ *   - GUVA-S12SD (UV) e LDR (luminosidade)
+ * Modulos OPCIONAIS (detectados automaticamente no boot):
+ *   - RTC DS3231: se ausente, usa o horario do proprio servidor ao receber
+ *   - EEPROM AT24C32: se ausente, usa fila de 1 posicao na RAM (sem
+ *     persistencia contra queda de energia, mas com nova tentativa ate
+ *     conseguir enviar). Assim que a EEPROM for instalada fisicamente,
+ *     o firmware passa a usar a fila completa (~90 registros) sozinho.
  *
- * v1.1: adiciona Watchdog Timer (reinicia sozinho se travar), checksum
- * nos registros da EEPROM (detecta corrupcao por queda de energia durante
- * a gravacao) e validacao de faixa fisica dos sensores.
+ * Diferenca em relacao ao firmware esp32-estacao/: SDA no GPIO18, pois
+ * este modelo especifico de placa WeMos nao expoe o GPIO21.
  ***************************************************************************/
 
 //==============================
@@ -21,6 +29,9 @@
 #include <ArduinoJson.h>
 #include <DHT.h>
 #include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+#include <Adafruit_BMP280.h>
 #include <Adafruit_AHTX0.h>
 #include <RTClib.h>
 #include <Preferences.h>
@@ -28,7 +39,7 @@
 #include <math.h>
 
 //==============================
-// PINOS ESP32 WROOM-32
+// PINOS ESP32 WROOM-32 (WeMos - GPIO21 indisponivel nesta placa)
 //==============================
 #define DHT_PIN 4
 #define DHT_TYPE DHT22
@@ -37,6 +48,7 @@
 #define SDA_PIN 18
 #define SCL_PIN 22
 #define BOTAO_RESET_PIN 0
+#define ENDERECO_EEPROM_I2C 0x50
 
 //==============================
 // WATCHDOG
@@ -44,28 +56,40 @@
 const int WDT_TIMEOUT_SEGUNDOS = 90;
 
 //==============================
-// FAIXAS FISICAS PLAUSIVEIS (validacao de sensores)
+// FAIXAS FISICAS PLAUSIVEIS
 //==============================
 const float TEMP_MIN_VALIDA = -10.0;
 const float TEMP_MAX_VALIDA = 65.0;
-const float UMIDADE_MIN_VALIDA = 0.0;
+const float UMIDADE_MIN_VALIDA = 5.0;
 const float UMIDADE_MAX_VALIDA = 100.0;
 const float UV_MAX_VALIDO = 15.0;
+const float PRESSAO_MIN_VALIDA = 800.0;
+const float PRESSAO_MAX_VALIDA = 1100.0;
 
 //==============================
-// OBJETOS
+// OBJETOS DE SENSOR
 //==============================
 DHT dht(DHT_PIN, DHT_TYPE);
+Adafruit_BME280 bme;
+Adafruit_BMP280 bmp;
 Adafruit_AHTX0 aht;
 RTC_DS3231 rtc;
 Preferences preferencias;
 WebServer servidorAdmin(80);
 
 //==============================
-// ESTADOS
+// DISPONIBILIDADE DOS SENSORES/MODULOS (detectada no boot)
 //==============================
+bool bmeDisponivel = false;
+bool bmpDisponivel = false;
 bool ahtDisponivel = false;
 bool rtcDisponivel = false;
+bool eepromDisponivel = false;
+
+bool bmeSaudavel = false;
+bool ahtSaudavel = false;
+
+String fonteAmbienteAtual = "nenhuma";
 
 //==============================
 // CONFIGURACAO SERVIDORES (LOCAL + PRODUCAO)
@@ -111,22 +135,27 @@ struct Acumulador {
     }
 };
 
-Acumulador acTempDHT, acUmidDHT, acTempAHT, acUmidAHT, acUV, acLDR;
+Acumulador acTempGloboNegro, acUmidGloboNegro;
+Acumulador acTempAr, acUmidAr;
+Acumulador acPressao, acAltitude;
+Acumulador acUV, acLDR;
 
 //==============================
-// CONTADORES DE LEITURAS DESCARTADAS
+// CONTADORES DE DIAGNOSTICO
 //==============================
 unsigned long leiturasDescartadasFaixa = 0;
 unsigned long registrosDescartadosChecksum = 0;
+unsigned long trocasDeFonteAmbiente = 0;
 
 //==============================
-// REGISTRO PERSISTIDO NA EEPROM (fila de envio)
+// REGISTRO (usado tanto na fila EEPROM quanto no fallback em RAM)
 //==============================
 struct RegistroMeteorologico {
     uint16_t ano;
     uint8_t mes, dia, hora, minuto, segundo;
-    float tempDHT, umidDHT;
-    float tempAHT, umidAHT;
+    float tempGloboNegro, umidGloboNegro;
+    float tempAr, umidAr;
+    float pressao, altitude;
     float indiceUV, luminosidade;
     float ITGU, ITU;
     bool enviado;
@@ -142,11 +171,18 @@ const int MAX_REGISTROS = (CAPACIDADE_EEPROM_BYTES - ENDERECO_DADOS) / TAM_REGIS
 int totalRegistros = 0;
 int proximoRegistro = 0;
 
+RegistroMeteorologico registroPendenteRAM;
+bool registroPendenteRAMValido = false;
+
 //==============================
 // PROTOTIPOS
 //==============================
 void inicializarSensores();
+byte identificarChipBmx(byte endereco);
+bool detectarEeprom();
 void coletarAmostra();
+void lerAmbiente(float &temperatura, float &umidade, float dhtTempJaLido, float dhtUmidJaLido);
+void lerPressaoAltitude(float &pressao, float &altitude);
 float lerUV();
 float lerLDR();
 bool faixaValida(float valor, float minimo, float maximo);
@@ -179,8 +215,8 @@ void setup() {
     pinMode(BOTAO_RESET_PIN, INPUT_PULLUP);
 
     Serial.println("\n==============================");
-    Serial.println(" SMART WEATHER PLATFORM v1.1 ");
-    Serial.printf(" Capacidade da fila: %d registros\n", MAX_REGISTROS);
+    Serial.println(" SMART WEATHER PLATFORM v2.2 ");
+    Serial.println(" ESP32 WeMos (GPIO18/22) ");
     Serial.println("==============================");
 
     esp_task_wdt_config_t configuracaoWdt = {
@@ -193,7 +229,14 @@ void setup() {
     Serial.printf("Watchdog ativo (timeout %ds).\n", WDT_TIMEOUT_SEGUNDOS);
 
     inicializarSensores();
-    carregarControleEEPROM();
+
+    if (eepromDisponivel) {
+        carregarControleEEPROM();
+        Serial.printf("Fila persistente ativa (EEPROM). Capacidade: %d registros.\n", MAX_REGISTROS);
+    } else {
+        Serial.println("AVISO: EEPROM nao detectada. Usando buffer de 1 registro na RAM (sem protecao contra queda de energia).");
+    }
+
     carregarConfiguracao();
     configurarWiFi();
     configurarServidorAdmin();
@@ -219,8 +262,23 @@ void loop() {
             ESP.restart();
         }
         if (comando == "status_fila") {
-            Serial.printf("Fila: %d/%d | Descartes por faixa invalida: %lu | Descartes por checksum: %lu\n",
-                totalRegistros, MAX_REGISTROS, leiturasDescartadasFaixa, registrosDescartadosChecksum);
+            if (eepromDisponivel) {
+                Serial.printf("Fila (EEPROM): %d/%d | Fonte ambiente: %s | Trocas: %lu | Descartes faixa: %lu | Descartes checksum: %lu\n",
+                    totalRegistros, MAX_REGISTROS, fonteAmbienteAtual.c_str(), trocasDeFonteAmbiente,
+                    leiturasDescartadasFaixa, registrosDescartadosChecksum);
+            } else {
+                Serial.printf("Fila (RAM, sem EEPROM): %s | Fonte ambiente: %s | Trocas: %lu | Descartes faixa: %lu\n",
+                    registroPendenteRAMValido ? "1 pendente" : "vazia", fonteAmbienteAtual.c_str(),
+                    trocasDeFonteAmbiente, leiturasDescartadasFaixa);
+            }
+        }
+        if (comando == "sensores") {
+            Serial.printf("BME280: %s | BMP280: %s | AHT10: %s | RTC: %s | EEPROM: %s\n",
+                bmeDisponivel ? "sim" : "nao",
+                bmpDisponivel ? "sim" : "nao",
+                ahtDisponivel ? "sim" : "nao",
+                rtcDisponivel ? "sim" : "nao",
+                eepromDisponivel ? "sim" : "nao");
         }
     }
 
@@ -249,14 +307,57 @@ void loop() {
 }
 
 //====================================================
-// SENSORES
+// SENSORES - INICIALIZACAO (deteccao automatica)
 //====================================================
+
+byte identificarChipBmx(byte endereco) {
+    Wire.beginTransmission(endereco);
+    Wire.write(0xD0);
+    if (Wire.endTransmission(false) != 0) return 0;
+
+    Wire.requestFrom(endereco, (byte)1);
+    if (!Wire.available()) return 0;
+
+    return Wire.read();
+}
+
+bool detectarEeprom() {
+    Wire.beginTransmission(ENDERECO_EEPROM_I2C);
+    return Wire.endTransmission() == 0;
+}
+
 void inicializarSensores() {
     Wire.begin(SDA_PIN, SCL_PIN);
     dht.begin();
+    Serial.println("DHT22 configurado (sempre ativo, sem deteccao - e obrigatorio).");
 
-    ahtDisponivel = aht.begin();
-    Serial.println(ahtDisponivel ? "AHT10 encontrado (0x38)." : "AVISO: AHT10 nao encontrado.");
+    byte enderecoDetectado = 0;
+    byte chipId = identificarChipBmx(0x76);
+    if (chipId != 0) {
+        enderecoDetectado = 0x76;
+    } else {
+        chipId = identificarChipBmx(0x77);
+        if (chipId != 0) enderecoDetectado = 0x77;
+    }
+
+    if (chipId == 0x60) {
+        bmeDisponivel = bme.begin(enderecoDetectado);
+        bmeSaudavel = bmeDisponivel;
+        Serial.println(bmeDisponivel ? "BME280 encontrado (ambiente + pressao/altitude)." : "BME280 detectado (chip ID) mas falhou ao iniciar a biblioteca.");
+    } else if (chipId == 0x58) {
+        bmpDisponivel = bmp.begin(enderecoDetectado);
+        Serial.println(bmpDisponivel ? "BMP280 encontrado (pressao/altitude, sem umidade)." : "BMP280 detectado (chip ID) mas falhou ao iniciar a biblioteca.");
+    } else {
+        Serial.println("Nenhum sensor BME280/BMP280 detectado no barramento I2C.");
+    }
+
+    if (aht.begin()) {
+        ahtDisponivel = true;
+        ahtSaudavel = true;
+        Serial.println("AHT10 encontrado (ambiente, backup do BME280).");
+    } else {
+        Serial.println("AHT10 nao encontrado.");
+    }
 
     rtcDisponivel = rtc.begin();
     if (rtcDisponivel) {
@@ -266,11 +367,94 @@ void inicializarSensores() {
             rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
         }
     } else {
-        Serial.println("AVISO: RTC nao encontrado. Timestamps usarao millis() como aproximacao.");
+        Serial.println("RTC nao encontrado. O horario da leitura sera definido pelo servidor ao receber (registrado_em nao sera enviado pelo firmware).");
+    }
+
+    eepromDisponivel = detectarEeprom();
+    Serial.println(eepromDisponivel ? "EEPROM AT24C32 encontrada (0x50)." : "EEPROM nao encontrada.");
+
+    if (!bmeDisponivel && !bmpDisponivel && !ahtDisponivel) {
+        Serial.println("AVISO: nenhum sensor de ambiente/pressao encontrado. Temperatura do ar sera obtida do DHT22 (globo negro) como fallback.");
     }
 
     analogReadResolution(12);
     analogSetAttenuation(ADC_11db);
+}
+
+//====================================================
+// LEITURA DE AMBIENTE COM REDUNDANCIA EM TEMPO REAL
+//====================================================
+void lerAmbiente(float &temperatura, float &umidade, float dhtTempJaLido, float dhtUmidJaLido) {
+    temperatura = NAN;
+    umidade = NAN;
+    String fonteEscolhida = "nenhuma";
+
+    if (bmeDisponivel) {
+        float t = bme.readTemperature();
+        float u = bme.readHumidity();
+
+        if (faixaValida(t, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) && faixaValida(u, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+            temperatura = t;
+            umidade = u;
+            fonteEscolhida = "BME280";
+            bmeSaudavel = true;
+        } else {
+            if (bmeSaudavel) {
+                Serial.println("AVISO: BME280 parou de responder corretamente. Alternando para sensor de backup.");
+            }
+            bmeSaudavel = false;
+        }
+    }
+
+    if (isnan(temperatura) && ahtDisponivel) {
+        sensors_event_t evUmid, evTemp;
+        aht.getEvent(&evUmid, &evTemp);
+
+        if (faixaValida(evTemp.temperature, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) &&
+            faixaValida(evUmid.relative_humidity, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+            temperatura = evTemp.temperature;
+            umidade = evUmid.relative_humidity;
+            fonteEscolhida = "AHT10";
+            ahtSaudavel = true;
+        } else {
+            ahtSaudavel = false;
+        }
+    }
+
+    if (isnan(temperatura)) {
+        if (faixaValida(dhtTempJaLido, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) && faixaValida(dhtUmidJaLido, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+            temperatura = dhtTempJaLido;
+            umidade = dhtUmidJaLido;
+            fonteEscolhida = "DHT22 (fallback)";
+        }
+    }
+
+    if (fonteEscolhida != fonteAmbienteAtual) {
+        Serial.printf("Fonte de ambiente: %s -> %s\n", fonteAmbienteAtual.c_str(), fonteEscolhida.c_str());
+        trocasDeFonteAmbiente++;
+        fonteAmbienteAtual = fonteEscolhida;
+    }
+}
+
+//====================================================
+// LEITURA DE PRESSAO/ALTITUDE (BME280 ou BMP280)
+//====================================================
+void lerPressaoAltitude(float &pressao, float &altitude) {
+    pressao = NAN;
+    altitude = NAN;
+
+    if (bmeDisponivel && bmeSaudavel) {
+        pressao = bme.readPressure() / 100.0F;
+        altitude = bme.readAltitude(1013.25);
+    } else if (bmpDisponivel) {
+        pressao = bmp.readPressure() / 100.0F;
+        altitude = bmp.readAltitude(1013.25);
+    }
+
+    if (!isnan(pressao) && !faixaValida(pressao, PRESSAO_MIN_VALIDA, PRESSAO_MAX_VALIDA)) {
+        pressao = NAN;
+        altitude = NAN;
+    }
 }
 
 float lerUV() {
@@ -287,47 +471,50 @@ bool faixaValida(float valor, float minimo, float maximo) {
     return !isnan(valor) && valor >= minimo && valor <= maximo;
 }
 
+//====================================================
+// COLETA DE UMA AMOSTRA (a cada 1 minuto)
+//====================================================
 void coletarAmostra() {
-    float tempDHT = dht.readTemperature();
-    float umidDHT = dht.readHumidity();
+    float tempGloboNegro = dht.readTemperature();
+    float umidGloboNegro = dht.readHumidity();
 
-    if (isnan(tempDHT) || isnan(umidDHT)) {
-        Serial.println("Falha ao ler DHT22 nesta amostra. Ignorando.");
-    } else if (!faixaValida(tempDHT, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) ||
-               !faixaValida(umidDHT, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
-        Serial.printf("DHT22 fora da faixa plausivel (temp=%.1f umid=%.1f). Descartando amostra.\n", tempDHT, umidDHT);
+    if (isnan(tempGloboNegro) || isnan(umidGloboNegro)) {
+        Serial.println("Falha ao ler DHT22 (globo negro) nesta amostra. Ignorando.");
+    } else if (!faixaValida(tempGloboNegro, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) ||
+               !faixaValida(umidGloboNegro, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+        Serial.printf("DHT22 (globo negro) fora da faixa plausivel (temp=%.1f umid=%.1f). Descartando amostra.\n", tempGloboNegro, umidGloboNegro);
         leiturasDescartadasFaixa++;
     } else {
-        acTempDHT.adicionar(tempDHT);
-        acUmidDHT.adicionar(umidDHT);
+        acTempGloboNegro.adicionar(tempGloboNegro);
+        acUmidGloboNegro.adicionar(umidGloboNegro);
     }
 
-    if (ahtDisponivel) {
-        sensors_event_t umid, temp;
-        aht.getEvent(&umid, &temp);
+    float tempAr, umidAr;
+    lerAmbiente(tempAr, umidAr, tempGloboNegro, umidGloboNegro);
+    if (!isnan(tempAr)) {
+        acTempAr.adicionar(tempAr);
+        acUmidAr.adicionar(umidAr);
+    } else {
+        leiturasDescartadasFaixa++;
+    }
 
-        if (!faixaValida(temp.temperature, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) ||
-            !faixaValida(umid.relative_humidity, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
-            Serial.printf("AHT10 fora da faixa plausivel (temp=%.1f umid=%.1f). Descartando amostra.\n",
-                temp.temperature, umid.relative_humidity);
-            leiturasDescartadasFaixa++;
-        } else {
-            acTempAHT.adicionar(temp.temperature);
-            acUmidAHT.adicionar(umid.relative_humidity);
-        }
+    float pressao, altitude;
+    lerPressaoAltitude(pressao, altitude);
+    if (!isnan(pressao)) {
+        acPressao.adicionar(pressao);
+        acAltitude.adicionar(altitude);
     }
 
     float uv = lerUV();
     if (faixaValida(uv, 0.0, UV_MAX_VALIDO)) {
         acUV.adicionar(uv);
     } else {
-        Serial.printf("UV fora da faixa plausivel (%.1f). Descartando amostra.\n", uv);
         leiturasDescartadasFaixa++;
     }
 
     acLDR.adicionar(lerLDR());
 
-    Serial.printf("Amostra coletada (%d acumuladas)\n", acUV.quantidade);
+    Serial.printf("Amostra coletada (%d acumuladas | ambiente via %s)\n", acUV.quantidade, fonteAmbienteAtual.c_str());
 }
 
 //====================================================
@@ -358,7 +545,7 @@ String classificar(float indice) {
 // EEPROM - LEITURA/ESCRITA BRUTA (AT24C32, endereco I2C 0x50)
 //====================================================
 void escreverEEPROM(int endereco, byte valor) {
-    Wire.beginTransmission(0x50);
+    Wire.beginTransmission(ENDERECO_EEPROM_I2C);
     Wire.write(endereco >> 8);
     Wire.write(endereco & 0xFF);
     Wire.write(valor);
@@ -367,16 +554,16 @@ void escreverEEPROM(int endereco, byte valor) {
 }
 
 byte lerEEPROM(int endereco) {
-    Wire.beginTransmission(0x50);
+    Wire.beginTransmission(ENDERECO_EEPROM_I2C);
     Wire.write(endereco >> 8);
     Wire.write(endereco & 0xFF);
     Wire.endTransmission();
-    Wire.requestFrom(0x50, 1);
+    Wire.requestFrom(ENDERECO_EEPROM_I2C, 1);
     return Wire.available() ? Wire.read() : 0;
 }
 
 void salvarControleEEPROM() {
-    Wire.beginTransmission(0x50);
+    Wire.beginTransmission(ENDERECO_EEPROM_I2C);
     Wire.write(0);
     Wire.write((totalRegistros >> 8) & 0xFF);
     Wire.write(totalRegistros & 0xFF);
@@ -430,7 +617,7 @@ bool lerRegistro(int indice, RegistroMeteorologico &registro) {
 }
 
 //====================================================
-// GRAVA A MEDIA DO CICLO NA FILA
+// GRAVA A MEDIA DO CICLO (na EEPROM se disponivel, senao na RAM)
 //====================================================
 void gravarRegistroPendente() {
     if (acUV.quantidade == 0) {
@@ -450,38 +637,48 @@ void gravarRegistroPendente() {
         registro.segundo = agora.second();
     }
 
-    registro.tempDHT = acTempDHT.media();
-    registro.umidDHT = acUmidDHT.media();
-    registro.tempAHT = acTempAHT.media();
-    registro.umidAHT = acUmidAHT.media();
+    registro.tempGloboNegro = acTempGloboNegro.media();
+    registro.umidGloboNegro = acUmidGloboNegro.media();
+    registro.tempAr = acTempAr.media();
+    registro.umidAr = acUmidAr.media();
+    registro.pressao = acPressao.media();
+    registro.altitude = acAltitude.media();
     registro.indiceUV = acUV.media();
     registro.luminosidade = acLDR.media();
 
-    registro.ITGU = (!isnan(registro.tempDHT) && !isnan(registro.umidDHT))
-        ? calcularITGU(registro.tempDHT, registro.umidDHT) : NAN;
+    registro.ITGU = (!isnan(registro.tempGloboNegro) && !isnan(registro.umidGloboNegro))
+        ? calcularITGU(registro.tempGloboNegro, registro.umidGloboNegro) : NAN;
 
-    registro.ITU = (ahtDisponivel && !isnan(registro.tempAHT) && !isnan(registro.umidAHT))
-        ? calcularITU(registro.tempAHT, registro.umidAHT) : NAN;
+    registro.ITU = (!isnan(registro.tempAr) && !isnan(registro.umidAr))
+        ? calcularITU(registro.tempAr, registro.umidAr) : NAN;
 
     registro.enviado = false;
 
-    int indice = proximoRegistro;
-    gravarRegistro(indice, registro);
+    if (eepromDisponivel) {
+        int indice = proximoRegistro;
+        gravarRegistro(indice, registro);
 
-    proximoRegistro = (proximoRegistro + 1) % MAX_REGISTROS;
-    if (totalRegistros < MAX_REGISTROS) {
-        totalRegistros++;
+        proximoRegistro = (proximoRegistro + 1) % MAX_REGISTROS;
+        if (totalRegistros < MAX_REGISTROS) {
+            totalRegistros++;
+        }
+        salvarControleEEPROM();
+
+        Serial.printf("Registro persistido na fila EEPROM (indice %d). Total pendentes/historico: %d\n", indice, totalRegistros);
+    } else {
+        registroPendenteRAM = registro;
+        registroPendenteRAMValido = true;
+        Serial.println("Registro guardado no buffer RAM (sem EEPROM disponivel).");
     }
-    salvarControleEEPROM();
 
-    acTempDHT.limpar();
-    acUmidDHT.limpar();
-    acTempAHT.limpar();
-    acUmidAHT.limpar();
+    acTempGloboNegro.limpar();
+    acUmidGloboNegro.limpar();
+    acTempAr.limpar();
+    acUmidAr.limpar();
+    acPressao.limpar();
+    acAltitude.limpar();
     acUV.limpar();
     acLDR.limpar();
-
-    Serial.printf("Registro persistido na fila (indice %d). Total pendentes/historico: %d\n", indice, totalRegistros);
 }
 
 //====================================================
@@ -490,10 +687,12 @@ void gravarRegistroPendente() {
 String montarJSON(const RegistroMeteorologico &r) {
     JsonDocument json;
 
-    if (!isnan(r.tempDHT)) json["temp_globo_negro"] = r.tempDHT;
-    if (!isnan(r.umidDHT)) json["umid_globo_negro"] = r.umidDHT;
-    if (!isnan(r.tempAHT)) json["temperatura_ar"] = r.tempAHT;
-    if (!isnan(r.umidAHT)) json["umidade_ar"] = r.umidAHT;
+    if (!isnan(r.tempGloboNegro)) json["temp_globo_negro"] = r.tempGloboNegro;
+    if (!isnan(r.umidGloboNegro)) json["umid_globo_negro"] = r.umidGloboNegro;
+    if (!isnan(r.tempAr)) json["temperatura_ar"] = r.tempAr;
+    if (!isnan(r.umidAr)) json["umidade_ar"] = r.umidAr;
+    if (!isnan(r.pressao)) json["pressao"] = r.pressao;
+    if (!isnan(r.altitude)) json["altitude"] = r.altitude;
     json["indice_uv"] = r.indiceUV;
     json["luminosidade"] = r.luminosidade;
 
@@ -559,48 +758,61 @@ bool enviarParaUmServidor(const char* url, const char* token, const String& json
 }
 
 //====================================================
-// TENTA ENVIAR O REGISTRO PENDENTE MAIS ANTIGO DA FILA
+// TENTA ENVIAR O REGISTRO PENDENTE MAIS ANTIGO
 //====================================================
 void tentarDrenarFila() {
-    if (totalRegistros == 0) {
-        return;
-    }
+    if (eepromDisponivel) {
+        if (totalRegistros == 0) return;
 
-    int indiceMaisAntigo = (proximoRegistro - totalRegistros + MAX_REGISTROS) % MAX_REGISTROS;
+        int indiceMaisAntigo = (proximoRegistro - totalRegistros + MAX_REGISTROS) % MAX_REGISTROS;
 
-    RegistroMeteorologico registro;
-    bool integro = lerRegistro(indiceMaisAntigo, registro);
+        RegistroMeteorologico registro;
+        bool integro = lerRegistro(indiceMaisAntigo, registro);
 
-    if (!integro) {
-        Serial.printf("Registro no indice %d esta corrompido (checksum invalido). Descartando.\n", indiceMaisAntigo);
-        registrosDescartadosChecksum++;
-        totalRegistros--;
-        salvarControleEEPROM();
-        return;
-    }
+        if (!integro) {
+            Serial.printf("Registro no indice %d esta corrompido (checksum invalido). Descartando.\n", indiceMaisAntigo);
+            registrosDescartadosChecksum++;
+            totalRegistros--;
+            salvarControleEEPROM();
+            return;
+        }
 
-    if (registro.enviado) {
-        totalRegistros--;
-        salvarControleEEPROM();
-        return;
-    }
+        if (registro.enviado) {
+            totalRegistros--;
+            salvarControleEEPROM();
+            return;
+        }
 
-    String json = montarJSON(registro);
-    Serial.println("Tentando enviar registro pendente da fila...");
+        String json = montarJSON(registro);
+        Serial.println("Tentando enviar registro pendente da fila (EEPROM)...");
 
-    bool sucessoLocal = enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), json, ultimoStatusLocal);
-    bool sucessoProducao = enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), json, ultimoStatusProducao);
+        bool sucessoLocal = enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), json, ultimoStatusLocal);
+        bool sucessoProducao = enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), json, ultimoStatusProducao);
 
-    if (sucessoLocal && sucessoProducao) {
-        registro.enviado = true;
-        gravarRegistro(indiceMaisAntigo, registro);
-
-        totalRegistros--;
-        salvarControleEEPROM();
-
-        Serial.printf("Registro enviado com sucesso. Restam %d na fila.\n", totalRegistros);
+        if (sucessoLocal && sucessoProducao) {
+            registro.enviado = true;
+            gravarRegistro(indiceMaisAntigo, registro);
+            totalRegistros--;
+            salvarControleEEPROM();
+            Serial.printf("Registro enviado com sucesso. Restam %d na fila.\n", totalRegistros);
+        } else {
+            Serial.println("Falha no envio. Registro permanece na fila para nova tentativa.");
+        }
     } else {
-        Serial.println("Falha no envio. Registro permanece na fila para nova tentativa.");
+        if (!registroPendenteRAMValido) return;
+
+        String json = montarJSON(registroPendenteRAM);
+        Serial.println("Tentando enviar registro pendente do buffer RAM...");
+
+        bool sucessoLocal = enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), json, ultimoStatusLocal);
+        bool sucessoProducao = enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), json, ultimoStatusProducao);
+
+        if (sucessoLocal && sucessoProducao) {
+            registroPendenteRAMValido = false;
+            Serial.println("Registro (RAM) enviado com sucesso.");
+        } else {
+            Serial.println("Falha no envio. Registro (RAM) permanece para nova tentativa.");
+        }
     }
 }
 
@@ -647,9 +859,18 @@ void configurarServidorAdmin() {
 
         html += "<div class='card status'><strong>Status atual</strong><br>";
         html += "IP: " + WiFi.localIP().toString() + "<br>";
-        html += "Fila pendente: " + String(totalRegistros) + " / " + String(MAX_REGISTROS) + "<br>";
+        if (eepromDisponivel) {
+            html += "Fila pendente (EEPROM): " + String(totalRegistros) + " / " + String(MAX_REGISTROS) + "<br>";
+        } else {
+            html += "Fila (RAM, sem EEPROM): " + String(registroPendenteRAMValido ? "1 pendente" : "vazia") + "<br>";
+        }
+        html += "Sensores: BME280=" + String(bmeDisponivel ? "sim" : "nao");
+        html += " | BMP280=" + String(bmpDisponivel ? "sim" : "nao");
+        html += " | AHT10=" + String(ahtDisponivel ? "sim" : "nao");
+        html += " | RTC=" + String(rtcDisponivel ? "sim" : "nao");
+        html += " | EEPROM=" + String(eepromDisponivel ? "sim" : "nao") + "<br>";
+        html += "Fonte de ambiente atual: " + fonteAmbienteAtual + "<br>";
         html += "Descartes (faixa invalida): " + String(leiturasDescartadasFaixa) + "<br>";
-        html += "Descartes (checksum): " + String(registrosDescartadosChecksum) + "<br>";
         html += "Ultimo envio local: " + ultimoStatusLocal + "<br>";
         html += "Ultimo envio producao: " + ultimoStatusProducao + "</div>";
 

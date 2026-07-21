@@ -91,3 +91,11 @@ demais estações do sistema.
   RTC para timestamp real, envio duplo (local + produção).
 - **v1.1**: adiciona Watchdog Timer e validação de faixa física dos
   sensores antes de acumular na média.
+- **v2.2**: suporte a múltiplos sensores com detecção automática —
+  - BME280 > AHT10 > DHT22 (fallback) para temperatura/umidade do ar, com
+    redundância em tempo real (troca de fonte se o sensor ativo parar)
+  - BME280 ou BMP280 para pressão/altitude, identificados pelo registrador
+    de chip ID (0xD0), evitando confundir os dois sensores
+  - RTC e EEPROM agora opcionais: detectados automaticamente no boot. Sem
+    EEPROM, usa buffer de 1 registro na RAM; assim que instalada, passa a
+    usar a fila persistente completa (~90 registros) sem alteração de código
