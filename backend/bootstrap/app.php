@@ -14,6 +14,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Confia no proxy reverso do Render, para que o Laravel detecte
+        // corretamente o esquema (https) e o host originais da requisicao
+        // do cliente. Sem isso, geracao de URLs (incluindo os links de
+        // paginacao) pode ficar incorreta em producao.
+        $middleware->trustProxies(at: '*');
+
         $middleware->statefulApi();
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
