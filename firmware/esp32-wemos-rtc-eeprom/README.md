@@ -81,9 +81,9 @@ Usa exatamente o mesmo endpoint e formato de payload que o firmware
 campo `registrado_em` (preenchido com o horário real do RTC, não o
 horário de quando o envio finalmente foi confirmado).
 
-**Fórmula do ITU**: usa a mesma fórmula de Buffington do ITGU (não a
-fórmula de Thom), garantindo que os valores sejam comparáveis com os das
-demais estações do sistema.
+**Fórmula do ITU**: usa Buffington et al. (1982) — ITU = 0.8*Ta + (UR/100)*(Ta - 14.3) + 46.3,
+a mais citada na literatura brasileira de bioclimatologia zootécnica para
+bovinos leiteiros em regiões semiáridas (diferente da forma do ITGU).
 
 ## Histórico de versões
 
@@ -99,3 +99,6 @@ demais estações do sistema.
   - RTC e EEPROM agora opcionais: detectados automaticamente no boot. Sem
     EEPROM, usa buffer de 1 registro na RAM; assim que instalada, passa a
     usar a fila persistente completa (~90 registros) sem alteração de código
+- v2.3: corrige a fórmula do ITU para Buffington et al. (1982), alinhada
+  com a literatura de bioclimatologia zootécnica para bovinos leiteiros em
+  regiões semiáridas.

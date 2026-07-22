@@ -75,8 +75,10 @@ mesmo tempo.
 
 - ITGU (Índice de Temperatura de Globo e Umidade): usa temperatura do globo negro,
   considera radiação solar/térmica. Fórmula de Buffington: ITGU = Tgn + 0.36*Tpo + 41.5
-- ITU (Índice de Temperatura e Umidade): usa temperatura do ar ambiente (sem efeito
-  de radiação). Mesma fórmula, com temperatura de bulbo seco.
+- ITU (Índice de Temperatura e Umidade): usa temperatura do ar ambiente e umidade
+  relativa direta (não ponto de orvalho). Fórmula de Buffington et al. (1982),
+  a mais citada na literatura brasileira de bioclimatologia zootécnica para
+  bovinos leiteiros em regiões semiáridas: ITU = 0.8*Ta + (UR/100)*(Ta - 14.3) + 46.3
 
 Classificação: normal (≤72), alerta (72-78), perigo (>78).
 
@@ -158,3 +160,8 @@ sensor de ambiente dedicado, esses dois pares normalmente diferem.
 | 401 | Token inválido ou estação inativa |
 | 422 | Payload malformado ou campo com tipo errado |
 | 429 | Mais de 30 requisições/minuto desse token |
+- v2.3 (jul/2026): corrige a fórmula do ITU para Buffington et al. (1982) —
+  a mais citada na literatura brasileira de bioclimatologia zootécnica para
+  bovinos leiteiros em regiões semiáridas. Antes usava uma variante
+  Thom-adaptada (mesma forma do ITGU), que também é usada na literatura mas
+  com menos frequência para especificamente o ITU.

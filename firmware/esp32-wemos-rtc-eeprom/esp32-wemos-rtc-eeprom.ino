@@ -531,7 +531,11 @@ float calcularITGU(float temperatura, float umidade) {
 }
 
 float calcularITU(float temperatura, float umidade) {
-    return temperatura + (0.36 * calcularPontoOrvalho(temperatura, umidade)) + 41.5;
+    // Buffington et al. (1982) - formula especifica de ITU, amplamente
+    // citada na literatura brasileira de bioclimatologia zootecnica
+    // (bovinos leiteiros, semiarido/caatinga). Usa umidade relativa
+    // diretamente, diferente da forma do ITGU (que usa ponto de orvalho).
+    return (0.8 * temperatura) + ((umidade / 100.0) * (temperatura - 14.3)) + 46.3;
 }
 
 String classificar(float indice) {
