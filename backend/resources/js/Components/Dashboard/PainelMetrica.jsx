@@ -7,13 +7,19 @@ export default function GraficoMetrica({ serieMetrica, estacoes, metricaSelecion
     const nomesPorId = Object.fromEntries(estacoes.map(e => [e.id, e.nome]));
     const infoMetrica = METRICAS[metricaSelecionada] ?? { rotulo: metricaSelecionada, unidade: '' };
 
-    const dadosPorRotulo = {};
+  const dadosPorRotulo = {};
     serieMetrica.forEach((ponto) => {
-        if (!dadosPorRotulo[ponto.rotulo]) {
-            dadosPorRotulo[ponto.rotulo] = { horario: ponto.rotulo, _ordem: Object.keys(dadosPorRotulo).length };
+        // Prefixo "r_" evita que o JavaScript reordene as chaves numericamente
+        // (chaves que parecem numeros puros sao sempre listadas primeiro,
+        // ignorando a ordem de insercao - um comportamento nativo do proprio
+        // motor JS, nao um bug do React). Isso preserva a ordem correta que
+        // o backend ja envia (01, 02, 03... 31).
+        const chave = 'r_' + ponto.rotulo;
+        if (!dadosPorRotulo[chave]) {
+            dadosPorRotulo[chave] = { horario: ponto.rotulo };
         }
         const nomeEstacao = nomesPorId[ponto.estacao_id] ?? `Estação ${ponto.estacao_id}`;
-        dadosPorRotulo[ponto.rotulo][nomeEstacao] = ponto.valor !== null ? parseFloat(ponto.valor) : null;
+        dadosPorRotulo[chave][nomeEstacao] = ponto.valor !== null ? parseFloat(ponto.valor) : null;
     });
 
     const dados = Object.values(dadosPorRotulo);
