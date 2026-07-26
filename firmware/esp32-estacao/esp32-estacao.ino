@@ -222,6 +222,15 @@ void setup() {
     Serial.println(" ESP32 tradicional (GPIO21/22) ");
     Serial.println("==============================");
 
+    // O core Arduino-ESP32 ja inicializa um watchdog padrao (com timeout
+    // curto) antes do nosso setup() rodar. Se nao desativarmos esse
+    // watchdog padrao primeiro, nossa configuracao de tempo maior e
+    // ignorada silenciosamente (erro "TWDT already initialized"), e o
+    // watchdog padrao acaba reiniciando o ESP32 no meio de operacoes
+    // legitimas - como aguardar o servidor de producao "acordar" de
+    // hibernacao, o que pode levar ate 50s.
+    esp_task_wdt_deinit();
+
     esp_task_wdt_config_t configuracaoWdt = {
         .timeout_ms = (uint32_t)(WDT_TIMEOUT_SEGUNDOS * 1000),
         .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,

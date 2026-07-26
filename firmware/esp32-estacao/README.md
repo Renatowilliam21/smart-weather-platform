@@ -165,3 +165,10 @@ sensor de ambiente dedicado, esses dois pares normalmente diferem.
   bovinos leiteiros em regiões semiáridas. Antes usava uma variante
   Thom-adaptada (mesma forma do ITGU), que também é usada na literatura mas
   com menos frequência para especificamente o ITU.
+- v2.4: corrige bug real no Watchdog Timer — o core Arduino-ESP32 ja
+  inicializa um watchdog padrao (timeout curto) antes do setup() do
+  usuario rodar, fazendo nossa configuracao de 90s falhar silenciosamente
+  ("TWDT already initialized"). O watchdog padrao (mais curto) reiniciava
+  o ESP32 prematuramente durante esperas legitimas, como o servidor de
+  producao "acordando" de hibernacao (ate 50s). Corrigido chamando
+  esp_task_wdt_deinit() antes de inicializar o watchdog personalizado.

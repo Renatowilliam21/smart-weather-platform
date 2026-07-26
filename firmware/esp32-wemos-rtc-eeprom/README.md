@@ -102,3 +102,5 @@ bovinos leiteiros em regiões semiáridas (diferente da forma do ITGU).
 - v2.3: corrige a fórmula do ITU para Buffington et al. (1982), alinhada
   com a literatura de bioclimatologia zootécnica para bovinos leiteiros em
   regiões semiáridas.
+- v2.4: corrige o mesmo bug de Watchdog Timer do esp32-estacao (watchdog
+  padrao do core conflitando com a configuracao personalizada de 90s).
