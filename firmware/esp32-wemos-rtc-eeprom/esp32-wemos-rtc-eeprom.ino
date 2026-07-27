@@ -1,11 +1,14 @@
 /***************************************************************************
  * SMART WEATHER PLATFORM
- * Firmware v2.2 (ESP32 WROOM-32 / WeMos, GPIO18/22 - sem GPIO21 disponivel)
+ * Firmware v2.6 (ESP32 WROOM-32 / WeMos, GPIO18/22 - sem GPIO21 disponivel)
  *
  * Sensores suportados (deteccao automatica por chip ID + redundancia):
  *   - DHT22 (globo negro) - sempre obrigatorio
- *   - Ambiente (temperatura/umidade): BME280 > AHT10 > DHT22 (fallback)
+ *   - Ambiente (temperatura/umidade): SHT41 > BME280 > AHT10 > DHT22 (fallback)
  *   - Pressao/altitude: BME280 ou BMP280 (identificado pelo chip ID)
+ *   - Qualidade do ar: ENS160 (CO2 equivalente, TVOC, AQI) - o AHT21 do
+ *     modulo combo e detectado pelo mesmo codigo do AHT10 (endereco 0x38
+ *     compartilhado - nao ligar os dois juntos no mesmo barramento)
  *   - GUVA-S12SD (UV) e LDR (luminosidade)
  * Modulos OPCIONAIS (detectados automaticamente no boot):
  *   - RTC DS3231: se ausente, usa o horario do proprio servidor ao receber
@@ -16,6 +19,13 @@
  *
  * Diferenca em relacao ao firmware esp32-estacao/: SDA no GPIO18, pois
  * este modelo especifico de placa WeMos nao expoe o GPIO21.
+ *
+ * Historico resumido de versoes (detalhes completos no README.md):
+ *   v2.2: EEPROM/RTC opcionais, com deteccao automatica e fallback em RAM
+ *   v2.3: fórmula do ITU corrigida para Buffington et al. (1982)
+ *   v2.4: corrige conflito de inicializacao do Watchdog Timer
+ *   v2.5: adiciona sensor SHT41 (alta precisao) como prioridade maxima
+ *   v2.6: adiciona sensor ENS160 (qualidade do ar: CO2eq/TVOC/AQI)
  ***************************************************************************/
 
 //==============================
@@ -34,6 +44,7 @@
 #include <Adafruit_BMP280.h>
 #include <Adafruit_AHTX0.h>
 #include <Adafruit_SHT4x.h>
+#include "ScioSense_ENS160.h"
 #include <RTClib.h>
 #include <Preferences.h>
 #include <esp_task_wdt.h>
@@ -75,6 +86,9 @@ Adafruit_BME280 bme;
 Adafruit_BMP280 bmp;
 Adafruit_AHTX0 aht;
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
+ScioSense_ENS160 ens160_addr52(ENS160_I2CADDR_0); // 0x52
+ScioSense_ENS160 ens160_addr53(ENS160_I2CADDR_1); // 0x53
+ScioSense_ENS160* ens160 = nullptr;
 RTC_DS3231 rtc;
 Preferences preferencias;
 WebServer servidorAdmin(80);
@@ -86,6 +100,7 @@ bool bmeDisponivel = false;
 bool bmpDisponivel = false;
 bool ahtDisponivel = false;
 bool sht4Disponivel = false;
+bool ens160Disponivel = false;
 bool rtcDisponivel = false;
 bool eepromDisponivel = false;
 
@@ -142,6 +157,7 @@ struct Acumulador {
 Acumulador acTempGloboNegro, acUmidGloboNegro;
 Acumulador acTempAr, acUmidAr;
 Acumulador acPressao, acAltitude;
+Acumulador acCo2, acTvoc, acAqi;
 Acumulador acUV, acLDR;
 
 //==============================
@@ -161,6 +177,7 @@ struct RegistroMeteorologico {
     float tempAr, umidAr;
     float pressao, altitude;
     float indiceUV, luminosidade;
+    float co2, tvoc, aqi;
     float ITGU, ITU;
     bool enviado;
     uint32_t checksum;
@@ -187,6 +204,7 @@ bool detectarEeprom();
 void coletarAmostra();
 void lerAmbiente(float &temperatura, float &umidade, float dhtTempJaLido, float dhtUmidJaLido);
 void lerPressaoAltitude(float &pressao, float &altitude);
+void lerQualidadeAr(float &co2, float &tvoc, float &aqi);
 float lerUV();
 float lerLDR();
 bool faixaValida(float valor, float minimo, float maximo);
@@ -286,11 +304,12 @@ void loop() {
             }
         }
         if (comando == "sensores") {
-            Serial.printf("SHT41: %s | BME280: %s | BMP280: %s | AHT10: %s | RTC: %s | EEPROM: %s\n",
+            Serial.printf("SHT41: %s | BME280: %s | BMP280: %s | AHT10: %s | ENS160: %s | RTC: %s | EEPROM: %s\n",
                 sht4Disponivel ? "sim" : "nao",
                 bmeDisponivel ? "sim" : "nao",
                 bmpDisponivel ? "sim" : "nao",
                 ahtDisponivel ? "sim" : "nao",
+                ens160Disponivel ? "sim" : "nao",
                 rtcDisponivel ? "sim" : "nao",
                 eepromDisponivel ? "sim" : "nao");
         }
@@ -381,6 +400,20 @@ void inicializarSensores() {
         Serial.println("SHT41 encontrado (0x44) - maior precisao, prioridade maxima para ambiente.");
     } else {
         Serial.println("SHT41 nao encontrado.");
+    }
+
+    if (ens160_addr52.begin()) {
+        ens160 = &ens160_addr52;
+        ens160Disponivel = true;
+        ens160->setMode(ENS160_OPMODE_STD);
+        Serial.println("ENS160 encontrado (0x52) - qualidade do ar (CO2eq/TVOC/AQI). O AHT21 deste modulo e detectado automaticamente pelo mesmo codigo do AHT10 (endereco 0x38 compartilhado).");
+    } else if (ens160_addr53.begin()) {
+        ens160 = &ens160_addr53;
+        ens160Disponivel = true;
+        ens160->setMode(ENS160_OPMODE_STD);
+        Serial.println("ENS160 encontrado (0x53) - qualidade do ar (CO2eq/TVOC/AQI). O AHT21 deste modulo e detectado automaticamente pelo mesmo codigo do AHT10 (endereco 0x38 compartilhado).");
+    } else {
+        Serial.println("ENS160 nao encontrado.");
     }
 
     rtcDisponivel = rtc.begin();
@@ -499,6 +532,22 @@ void lerPressaoAltitude(float &pressao, float &altitude) {
     }
 }
 
+//====================================================
+// LEITURA DE QUALIDADE DO AR (ENS160: CO2 equivalente, TVOC, AQI)
+//====================================================
+void lerQualidadeAr(float &co2, float &tvoc, float &aqi) {
+    co2 = NAN;
+    tvoc = NAN;
+    aqi = NAN;
+
+    if (!ens160Disponivel || ens160 == nullptr) return;
+
+    ens160->measure(true);
+    co2 = ens160->geteCO2();
+    tvoc = ens160->getTVOC();
+    aqi = ens160->getAQI();
+}
+
 float lerUV() {
     float tensao = (analogRead(UV_PIN) * 3.3) / 4095.0;
     float uv = tensao / 0.1;
@@ -545,6 +594,14 @@ void coletarAmostra() {
     if (!isnan(pressao)) {
         acPressao.adicionar(pressao);
         acAltitude.adicionar(altitude);
+    }
+
+    float co2, tvoc, aqiLido;
+    lerQualidadeAr(co2, tvoc, aqiLido);
+    if (!isnan(co2)) {
+        acCo2.adicionar(co2);
+        acTvoc.adicionar(tvoc);
+        acAqi.adicionar(aqiLido);
     }
 
     float uv = lerUV();
@@ -691,6 +748,9 @@ void gravarRegistroPendente() {
     registro.altitude = acAltitude.media();
     registro.indiceUV = acUV.media();
     registro.luminosidade = acLDR.media();
+    registro.co2 = acCo2.media();
+    registro.tvoc = acTvoc.media();
+    registro.aqi = acAqi.media();
 
     registro.ITGU = (!isnan(registro.tempGloboNegro) && !isnan(registro.umidGloboNegro))
         ? calcularITGU(registro.tempGloboNegro, registro.umidGloboNegro) : NAN;
@@ -725,6 +785,9 @@ void gravarRegistroPendente() {
     acAltitude.limpar();
     acUV.limpar();
     acLDR.limpar();
+    acCo2.limpar();
+    acTvoc.limpar();
+    acAqi.limpar();
 }
 
 //====================================================
@@ -739,6 +802,9 @@ String montarJSON(const RegistroMeteorologico &r) {
     if (!isnan(r.umidAr)) json["umidade_ar"] = r.umidAr;
     if (!isnan(r.pressao)) json["pressao"] = r.pressao;
     if (!isnan(r.altitude)) json["altitude"] = r.altitude;
+    if (!isnan(r.co2)) json["co2_ppm"] = r.co2;
+    if (!isnan(r.tvoc)) json["tvoc_ppb"] = r.tvoc;
+    if (!isnan(r.aqi)) json["aqi"] = (int)round(r.aqi);
     json["indice_uv"] = r.indiceUV;
     json["luminosidade"] = r.luminosidade;
 
@@ -914,6 +980,7 @@ void configurarServidorAdmin() {
         html += " | BME280=" + String(bmeDisponivel ? "sim" : "nao");
         html += " | BMP280=" + String(bmpDisponivel ? "sim" : "nao");
         html += " | AHT10=" + String(ahtDisponivel ? "sim" : "nao");
+        html += " | ENS160=" + String(ens160Disponivel ? "sim" : "nao");
         html += " | RTC=" + String(rtcDisponivel ? "sim" : "nao");
         html += " | EEPROM=" + String(eepromDisponivel ? "sim" : "nao") + "<br>";
         html += "Fonte de ambiente atual: " + fonteAmbienteAtual + "<br>";

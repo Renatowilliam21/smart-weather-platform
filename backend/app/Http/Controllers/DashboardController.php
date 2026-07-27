@@ -15,6 +15,7 @@ class DashboardController extends Controller
 {
     private const METRICAS_PERMITIDAS = [
         'itgu', 'itu', 'temperatura_ar', 'umidade_ar', 'luminosidade', 'indice_uv',
+        'co2_ppm', 'tvoc_ppb', 'aqi',
     ];
 
     private const PERIODOS_PERMITIDOS = ['dia', 'mes', 'ano'];

@@ -25,6 +25,7 @@ class StoreLeituraRequest extends FormRequest
             'luminosidade' => 'nullable|numeric|min:0|max:100',
             'co2_ppm' => 'nullable|numeric',
             'tvoc_ppb' => 'nullable|numeric',
+            'aqi' => 'nullable|integer|min:1|max:5',
             'chuva_mm' => 'nullable|numeric',
             'vel_vento' => 'nullable|numeric',
             'dir_vento' => 'nullable|numeric',

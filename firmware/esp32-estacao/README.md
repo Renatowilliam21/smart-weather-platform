@@ -175,3 +175,10 @@ sensor de ambiente dedicado, esses dois pares normalmente diferem.
 - v2.5: adiciona suporte ao sensor SHT41 (0x44, Sensirion, alta precisao),
   que passa a ser a nova prioridade maxima na cadeia de sensores de
   ambiente: SHT41 > BME280 > AHT10 > DHT22 (fallback).
+- v2.6: adiciona sensor ENS160 (qualidade do ar: CO2 equivalente, TVOC,
+  AQI). Usa a biblioteca "ENS160 - Adafruit Fork" (arquivo real:
+  ScioSense_ENS160.h) — API baseada em construtor com endereco fixo
+  (0x52 ou 0x53), diferente do padrao "Adafruit unified sensor" usado
+  pelos demais sensores. O AHT21 do modulo combo e detectado
+  automaticamente pelo mesmo codigo do AHT10 (endereco 0x38
+  compartilhado — nao ligar os dois juntos no mesmo barramento).

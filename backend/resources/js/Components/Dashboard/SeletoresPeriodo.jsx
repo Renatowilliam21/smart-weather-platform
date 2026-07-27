@@ -5,6 +5,9 @@ export const METRICAS = {
     umidade_ar: { rotulo: 'Umidade do Ar', unidade: '%' },
     luminosidade: { rotulo: 'Luminosidade', unidade: '%' },
     indice_uv: { rotulo: 'Índice UV', unidade: '' },
+    co2_ppm: { rotulo: 'CO2 equivalente', unidade: 'ppm' },
+    tvoc_ppb: { rotulo: 'TVOC', unidade: 'ppb' },
+    aqi: { rotulo: 'Índice de Qualidade do Ar', unidade: '(1-5)' },
 };
 
 export function SeletorMetrica({ metricasDisponiveis, metricaSelecionada, onChange }) {

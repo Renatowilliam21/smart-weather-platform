@@ -106,3 +106,6 @@ bovinos leiteiros em regiões semiáridas (diferente da forma do ITGU).
   padrao do core conflitando com a configuracao personalizada de 90s).
 - v2.5: adiciona suporte ao sensor SHT41 (0x44, alta precisao), mesma
   prioridade maxima do esp32-estacao.
+- v2.6: adiciona sensor ENS160 (qualidade do ar: CO2eq/TVOC/AQI), mesma
+  integracao do esp32-estacao (biblioteca "ENS160 - Adafruit Fork",
+  API por construtor com endereco fixo).
