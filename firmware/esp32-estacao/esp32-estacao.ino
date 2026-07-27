@@ -36,6 +36,7 @@
 #include <Adafruit_BME280.h>
 #include <Adafruit_BMP280.h>
 #include <Adafruit_AHTX0.h>
+#include <Adafruit_SHT4x.h>
 #include <RTClib.h>
 #include <Preferences.h>
 #include <esp_task_wdt.h>
@@ -76,6 +77,7 @@ DHT dht(DHT_PIN, DHT_TYPE);
 Adafruit_BME280 bme;
 Adafruit_BMP280 bmp;
 Adafruit_AHTX0 aht;
+Adafruit_SHT4x sht4 = Adafruit_SHT4x();
 RTC_DS3231 rtc;
 Preferences preferencias;
 WebServer servidorAdmin(80);
@@ -86,11 +88,13 @@ WebServer servidorAdmin(80);
 bool bmeDisponivel = false;
 bool bmpDisponivel = false;
 bool ahtDisponivel = false;
+bool sht4Disponivel = false;
 bool rtcDisponivel = false;
 bool eepromDisponivel = false;
 
 bool bmeSaudavel = false;
 bool ahtSaudavel = false;
+bool sht4Saudavel = false;
 
 String fonteAmbienteAtual = "nenhuma";
 
@@ -285,7 +289,8 @@ void loop() {
             }
         }
         if (comando == "sensores") {
-            Serial.printf("BME280: %s | BMP280: %s | AHT10: %s | RTC: %s | EEPROM: %s\n",
+            Serial.printf("SHT41: %s | BME280: %s | BMP280: %s | AHT10: %s | RTC: %s | EEPROM: %s\n",
+                sht4Disponivel ? "sim" : "nao",
                 bmeDisponivel ? "sim" : "nao",
                 bmpDisponivel ? "sim" : "nao",
                 ahtDisponivel ? "sim" : "nao",
@@ -371,6 +376,16 @@ void inicializarSensores() {
         Serial.println("AHT10 nao encontrado.");
     }
 
+    if (sht4.begin()) {
+        sht4Disponivel = true;
+        sht4Saudavel = true;
+        sht4.setPrecision(SHT4X_HIGH_PRECISION);
+        sht4.setHeater(SHT4X_NO_HEATER);
+        Serial.println("SHT41 encontrado (0x44) - maior precisao, prioridade maxima para ambiente.");
+    } else {
+        Serial.println("SHT41 nao encontrado.");
+    }
+
     rtcDisponivel = rtc.begin();
     if (rtcDisponivel) {
         Serial.println("RTC DS3231 encontrado (0x68).");
@@ -401,7 +416,25 @@ void lerAmbiente(float &temperatura, float &umidade, float dhtTempJaLido, float 
     umidade = NAN;
     String fonteEscolhida = "nenhuma";
 
-    if (bmeDisponivel) {
+    if (sht4Disponivel) {
+        sensors_event_t evUmidSht, evTempSht;
+        sht4.getEvent(&evUmidSht, &evTempSht);
+
+        if (faixaValida(evTempSht.temperature, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) &&
+            faixaValida(evUmidSht.relative_humidity, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+            temperatura = evTempSht.temperature;
+            umidade = evUmidSht.relative_humidity;
+            fonteEscolhida = "SHT41";
+            sht4Saudavel = true;
+        } else {
+            if (sht4Saudavel) {
+                Serial.println("AVISO: SHT41 parou de responder corretamente. Alternando para sensor de backup.");
+            }
+            sht4Saudavel = false;
+        }
+    }
+
+    if (isnan(temperatura) && bmeDisponivel) {
         float t = bme.readTemperature();
         float u = bme.readHumidity();
 
@@ -880,7 +913,8 @@ void configurarServidorAdmin() {
         } else {
             html += "Fila (RAM, sem EEPROM): " + String(registroPendenteRAMValido ? "1 pendente" : "vazia") + "<br>";
         }
-        html += "Sensores: BME280=" + String(bmeDisponivel ? "sim" : "nao");
+        html += "Sensores: SHT41=" + String(sht4Disponivel ? "sim" : "nao");
+        html += " | BME280=" + String(bmeDisponivel ? "sim" : "nao");
         html += " | BMP280=" + String(bmpDisponivel ? "sim" : "nao");
         html += " | AHT10=" + String(ahtDisponivel ? "sim" : "nao");
         html += " | RTC=" + String(rtcDisponivel ? "sim" : "nao");

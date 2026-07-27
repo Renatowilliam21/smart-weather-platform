@@ -104,3 +104,5 @@ bovinos leiteiros em regiões semiáridas (diferente da forma do ITGU).
   regiões semiáridas.
 - v2.4: corrige o mesmo bug de Watchdog Timer do esp32-estacao (watchdog
   padrao do core conflitando com a configuracao personalizada de 90s).
+- v2.5: adiciona suporte ao sensor SHT41 (0x44, alta precisao), mesma
+  prioridade maxima do esp32-estacao.
