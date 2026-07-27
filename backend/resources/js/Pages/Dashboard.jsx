@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, router } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 
 // Carregados sob demanda: Leaflet (mapa) e Recharts (grafico) sao bibliotecas
 // pesadas que nao precisam estar no bundle principal do Dashboard.
@@ -50,7 +50,7 @@ function EstacaoCard({ estacao }) {
         : 'bg-gray-100 text-gray-800';
 
     return (
-        <div className={`bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 ${estacao.offline ? "ring-2 ring-red-300" : ""}`}>
+        <Link href={route('estacoes.show', estacao.id)} className={`block bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 hover:shadow-md transition-shadow ${estacao.offline ? "ring-2 ring-red-300" : ""}`}>
             <div className="flex justify-between items-start mb-4">
                 <div>
                     <h3 className="font-semibold text-lg text-gray-800 flex items-center gap-2">
@@ -100,7 +100,7 @@ function EstacaoCard({ estacao }) {
                     Atualizado em {new Date(leitura.registrado_em).toLocaleString('pt-BR')}
                 </p>
             )}
-        </div>
+        </Link>
     );
 }
 
