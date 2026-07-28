@@ -89,7 +89,7 @@ export default function Detalhe({
                         {ultimaLeitura ? (
                             <>
                                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                                    <CampoMetrica rotulo="Temp. Ar" valor={ultimaLeitura.temperatura_ar} unidade="°C" destaque />
+                                    <CampoMetrica rotulo="Temp. Ar" valor={ultimaLeitura.temperatura_ar} unidade="°C" />
                                     <CampoMetrica rotulo="Umidade" valor={ultimaLeitura.umidade_ar} unidade="%" />
                                     <CampoMetrica rotulo="ITGU" valor={ultimaLeitura.itgu} />
                                     <CampoMetrica rotulo="ITU" valor={ultimaLeitura.itu} />
