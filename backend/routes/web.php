@@ -40,6 +40,30 @@ Route::middleware('auth')->group(function () {
     Route::post('/estacoes/{estacao}/regenerar-token', [EstacaoController::class, 'regenerarToken'])
         ->name('estacoes.regenerar-token');
 
+    Route::get('/debug-alertas-temp', function () {
+        $usuarios = \App\Models\User::pluck('email', 'id');
+
+        $resultado = [
+            'total_usuarios' => $usuarios->count(),
+            'emails' => $usuarios->values()->toArray(),
+            'mail_mailer_configurado' => config('mail.default'),
+            'brevo_key_presente' => !empty(config('services.brevo.key')),
+        ];
+
+        try {
+            \Illuminate\Support\Facades\Mail::raw('Teste de diagnostico - ' . now(), function ($m) {
+                $m->to('rwsti.com@gmail.com')->subject('Teste diagnostico producao');
+            });
+            $resultado['teste_envio'] = 'sucesso, sem excecao';
+        } catch (\Throwable $e) {
+            $resultado['teste_envio'] = 'ERRO: ' . $e->getMessage();
+            $resultado['teste_envio_classe'] = get_class($e);
+        }
+
+        return response()->json($resultado);
+    });
+
+
     Route::resource('alertas-config', App\Http\Controllers\AlertaConfigController::class)
     ->parameters(['alertas-config' => 'alertaConfig'])
     ->except(['show']);
