@@ -60,6 +60,22 @@ Route::middleware('auth')->group(function () {
             $resultado['teste_envio_classe'] = get_class($e);
         }
 
+        try {
+            $alertaDisparado = \App\Models\AlertaDisparado::with('alertaConfig.estacao')->latest()->first();
+            if (!$alertaDisparado) {
+                $resultado['teste_mailable'] = 'nenhum AlertaDisparado encontrado no banco';
+            } else {
+                $resultado['teste_mailable_alerta_id'] = $alertaDisparado->id;
+                $resultado['teste_mailable_config_existe'] = $alertaDisparado->alertaConfig !== null;
+                $resultado['teste_mailable_estacao_existe'] = $alertaDisparado->alertaConfig?->estacao !== null;
+                \Illuminate\Support\Facades\Mail::to('rwsti.com@gmail.com')->send(new \App\Mail\AlertaDisparadoMail($alertaDisparado));
+                $resultado['teste_mailable'] = 'sucesso, sem excecao';
+            }
+        } catch (\Throwable $e) {
+            $resultado['teste_mailable'] = 'ERRO: ' . $e->getMessage();
+            $resultado['teste_mailable_classe'] = get_class($e);
+            $resultado['teste_mailable_arquivo'] = $e->getFile() . ':' . $e->getLine();
+        }
         return response()->json($resultado);
     });
 
