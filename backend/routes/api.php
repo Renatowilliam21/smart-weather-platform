@@ -19,3 +19,23 @@ Route::prefix('v1')
         Route::get('/estacoes/{estacao}', [EstacaoController::class, 'show']);
         Route::get('/estacoes/{estacao}/leituras', [LeituraControllerV1::class, 'index']);
     });
+
+Route::get('/debug-alerta-contexto-api-temp', function () {
+    $leitura = \App\Models\Leitura::where('itgu', '>', 78)->latest()->first();
+    $servico = app(\App\Services\AlertaService::class);
+
+    try {
+        $servico->verificar($leitura);
+        return response()->json([
+            'resultado' => 'verificar() executado sem excecao',
+            'leitura_id' => $leitura->id,
+            'itgu' => $leitura->itgu,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'erro' => $e->getMessage(),
+            'classe' => get_class($e),
+            'arquivo' => $e->getFile() . ':' . $e->getLine(),
+        ]);
+    }
+});
