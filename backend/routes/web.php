@@ -76,6 +76,19 @@ Route::middleware('auth')->group(function () {
             $resultado['teste_mailable_classe'] = get_class($e);
             $resultado['teste_mailable_arquivo'] = $e->getFile() . ':' . $e->getLine();
         }
+        try {
+            $alertaTeste = \App\Models\AlertaDisparado::with('alertaConfig.estacao')->latest()->first();
+            $destinatarios = \App\Models\User::pluck('email');
+            $resultado['teste_cc_vazio_qtd_destinatarios'] = $destinatarios->count();
+            $resultado['teste_cc_vazio_slice'] = $destinatarios->slice(1)->values()->toArray();
+            \Illuminate\Support\Facades\Mail::to($destinatarios->first())
+                ->cc($destinatarios->slice(1))
+                ->send(new \App\Mail\AlertaDisparadoMail($alertaTeste));
+            $resultado['teste_cc_vazio'] = 'sucesso, sem excecao';
+        } catch (\Throwable $e) {
+            $resultado['teste_cc_vazio'] = 'ERRO: ' . $e->getMessage();
+            $resultado['teste_cc_vazio_classe'] = get_class($e);
+        }
         return response()->json($resultado);
     });
 
