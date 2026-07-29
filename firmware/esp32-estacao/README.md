@@ -182,3 +182,7 @@ sensor de ambiente dedicado, esses dois pares normalmente diferem.
   pelos demais sensores. O AHT21 do modulo combo e detectado
   automaticamente pelo mesmo codigo do AHT10 (endereco 0x38
   compartilhado — nao ligar os dois juntos no mesmo barramento).
+- v2.7: corrige a condicao de "pular agregacao" — antes dependia so do
+  sensor UV ter dado leitura valida no ciclo, descartando temperatura/
+  umidade/ITGU/pressao junto quando so o UV falhava. Agora so pula o
+  ciclo se NENHUM sensor teve leitura valida.

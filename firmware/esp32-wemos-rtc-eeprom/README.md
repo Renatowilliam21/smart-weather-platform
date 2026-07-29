@@ -109,3 +109,5 @@ bovinos leiteiros em regiões semiáridas (diferente da forma do ITGU).
 - v2.6: adiciona sensor ENS160 (qualidade do ar: CO2eq/TVOC/AQI), mesma
   integracao do esp32-estacao (biblioteca "ENS160 - Adafruit Fork",
   API por construtor com endereco fixo).
+- v2.7: mesma correcao do esp32-estacao — condicao de pular agregacao
+  agora verifica todos os sensores, nao so o UV.

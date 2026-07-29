@@ -721,8 +721,20 @@ bool lerRegistro(int indice, RegistroMeteorologico &registro) {
 // GRAVA A MEDIA DO CICLO (na EEPROM se disponivel, senao na RAM)
 //====================================================
 void gravarRegistroPendente() {
-    if (acUV.quantidade == 0) {
-        Serial.println("Nenhuma amostra acumulada. Pulando agregacao deste ciclo.");
+    // So pula o ciclo inteiro se NENHUM sensor conseguiu nenhuma leitura
+    // valida - antes, um sensor especifico com falha (ex: UV com contato
+    // instavel) descartava tambem temperatura/umidade/ITGU/pressao que
+    // estavam funcionando bem, perdendo dados bons por causa de um sensor
+    // ruim.
+    bool nenhumaAmostraValida = acTempGloboNegro.quantidade == 0
+        && acTempAr.quantidade == 0
+        && acPressao.quantidade == 0
+        && acUV.quantidade == 0
+        && acLDR.quantidade == 0
+        && acCo2.quantidade == 0;
+
+    if (nenhumaAmostraValida) {
+        Serial.println("Nenhuma amostra acumulada em nenhum sensor. Pulando agregacao deste ciclo.");
         return;
     }
 
