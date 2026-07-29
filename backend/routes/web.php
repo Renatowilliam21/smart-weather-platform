@@ -89,6 +89,12 @@ Route::middleware('auth')->group(function () {
             $resultado['teste_cc_vazio'] = 'ERRO: ' . $e->getMessage();
             $resultado['teste_cc_vazio_classe'] = get_class($e);
         }
+        $configItgu = \App\Models\AlertaConfig::where('parametro', 'itgu')->where('valor_limite', 80)->first();
+        if ($configItgu) {
+            $resultado['config_id'] = $configItgu->id;
+            $resultado['total_alertas_nao_resolvidos'] = \App\Models\AlertaDisparado::where('alerta_config_id', $configItgu->id)->where('resolvido', false)->count();
+            $resultado['ids_nao_resolvidos'] = \App\Models\AlertaDisparado::where('alerta_config_id', $configItgu->id)->where('resolvido', false)->pluck('id')->toArray();
+        }
         return response()->json($resultado);
     });
 
