@@ -8,6 +8,7 @@ export const METRICAS = {
     co2_ppm: { rotulo: 'CO2 equivalente', unidade: 'ppm' },
     tvoc_ppb: { rotulo: 'TVOC', unidade: 'ppb' },
     aqi: { rotulo: 'Índice de Qualidade do Ar', unidade: '(1-5)' },
+    indice_calor: { rotulo: 'Índice de Calor (NOAA)', unidade: '°C' },
 };
 
 export function SeletorMetrica({ metricasDisponiveis, metricaSelecionada, onChange }) {

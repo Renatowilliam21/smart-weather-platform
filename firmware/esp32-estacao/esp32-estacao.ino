@@ -1,6 +1,6 @@
 /***************************************************************************
  * SMART WEATHER PLATFORM
- * Firmware v2.6 (ESP32 WROOM-32 tradicional, GPIO21/22)
+ * Firmware v2.8 (ESP32 WROOM-32 tradicional, GPIO21/22)
  *
  * Sensores suportados (deteccao automatica por chip ID + redundancia):
  *   - DHT22 (globo negro) - sempre obrigatorio
@@ -24,6 +24,8 @@
  *   v2.4: corrige conflito de inicializacao do Watchdog Timer
  *   v2.5: adiciona sensor SHT41 (alta precisao) como prioridade maxima
  *   v2.6: adiciona sensor ENS160 (qualidade do ar: CO2eq/TVOC/AQI)
+ *   v2.7: nao descarta o ciclo inteiro se so o sensor UV falhar
+ *   v2.8: adiciona Teste de Degrau (OMM) e Indice de Calor NOAA
  ***************************************************************************/
 
 //==============================
@@ -165,6 +167,27 @@ unsigned long leiturasDescartadasFaixa = 0;
 unsigned long registrosDescartadosChecksum = 0;
 unsigned long trocasDeFonteAmbiente = 0;
 
+// Teste de Degrau (WMO): rejeita saltos bruscos e fisicamente implausiveis
+// entre leituras consecutivas (variacao maxima de 3.0C por minuto),
+// complementando a validacao de faixa absoluta ja existente.
+const float DEGRAU_MAX_VARIACAO_C = 3.0;
+float ultimaTempGloboNegroValida = NAN;
+float ultimaTempArValida = NAN;
+unsigned long degrauRejeicoes = 0;
+
+bool passaTesteDegrau(float novoValor, float &ultimoValorValido) {
+    if (isnan(ultimoValorValido)) {
+        ultimoValorValido = novoValor;
+        return true;
+    }
+    if (fabs(novoValor - ultimoValorValido) > DEGRAU_MAX_VARIACAO_C) {
+        degrauRejeicoes++;
+        return false;
+    }
+    ultimoValorValido = novoValor;
+    return true;
+}
+
 //==============================
 // REGISTRO (usado tanto na fila EEPROM quanto no fallback em RAM)
 //==============================
@@ -177,6 +200,7 @@ struct RegistroMeteorologico {
     float indiceUV, luminosidade;
     float co2, tvoc, aqi;
     float ITGU, ITU;
+    float indiceCalor;
     bool enviado;
     uint32_t checksum;
 };
@@ -220,6 +244,8 @@ bool enviarParaUmServidor(const char* url, const char* token, const String& json
 float calcularPontoOrvalho(float temperatura, float umidade);
 float calcularITGU(float temperatura, float umidade);
 float calcularITU(float temperatura, float umidade);
+float calcularIndiceCalor(float temperatura, float umidade);
+String classificarIndiceCalor(float indiceCalor);
 String classificar(float indice);
 void carregarConfiguracao();
 void configurarWiFi();
@@ -235,7 +261,7 @@ void setup() {
     pinMode(BOTAO_RESET_PIN, INPUT_PULLUP);
 
     Serial.println("\n==============================");
-    Serial.println(" SMART WEATHER PLATFORM v2.2 ");
+    Serial.println(" SMART WEATHER PLATFORM v2.8 ");
     Serial.println(" ESP32 tradicional (GPIO21/22) ");
     Serial.println("==============================");
 
@@ -573,6 +599,8 @@ void coletarAmostra() {
                !faixaValida(umidGloboNegro, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
         Serial.printf("DHT22 (globo negro) fora da faixa plausivel (temp=%.1f umid=%.1f). Descartando amostra.\n", tempGloboNegro, umidGloboNegro);
         leiturasDescartadasFaixa++;
+    } else if (!passaTesteDegrau(tempGloboNegro, ultimaTempGloboNegroValida)) {
+        Serial.printf("DHT22 (globo negro) reprovado no teste de degrau (variacao > %.1fC). Descartando amostra.\n", DEGRAU_MAX_VARIACAO_C);
     } else {
         acTempGloboNegro.adicionar(tempGloboNegro);
         acUmidGloboNegro.adicionar(umidGloboNegro);
@@ -580,7 +608,9 @@ void coletarAmostra() {
 
     float tempAr, umidAr;
     lerAmbiente(tempAr, umidAr, tempGloboNegro, umidGloboNegro);
-    if (!isnan(tempAr)) {
+    if (!isnan(tempAr) && !passaTesteDegrau(tempAr, ultimaTempArValida)) {
+        Serial.printf("Temperatura do ar reprovada no teste de degrau (variacao > %.1fC). Descartando amostra.\n", DEGRAU_MAX_VARIACAO_C);
+    } else if (!isnan(tempAr)) {
         acTempAr.adicionar(tempAr);
         acUmidAr.adicionar(umidAr);
     } else {
@@ -633,6 +663,39 @@ float calcularITU(float temperatura, float umidade) {
     // (bovinos leiteiros, semiarido/caatinga). Usa umidade relativa
     // diretamente, diferente da forma do ITGU (que usa ponto de orvalho).
     return (0.8 * temperatura) + ((umidade / 100.0) * (temperatura - 14.3)) + 46.3;
+}
+
+// Indice de Calor NOAA (regressao de Rothfusz) - foco em seguranca humana,
+// diferente do ITGU/ITU (focados em conforto termico animal). A formula
+// so e valida a partir de ~26.7C (80F); abaixo disso, a propria NOAA
+// recomenda usar a temperatura do ar sem ajuste.
+float calcularIndiceCalor(float temperatura, float umidade) {
+    if (temperatura < 26.7) {
+        return temperatura;
+    }
+    float T = temperatura * 9.0 / 5.0 + 32.0;
+    float RH = umidade;
+    float HI = -42.379 + (2.04901523 * T) + (10.14333127 * RH)
+        - (0.22475541 * T * RH) - (0.00683783 * T * T) - (0.05481717 * RH * RH)
+        + (0.00122874 * T * T * RH) + (0.00085282 * T * RH * RH)
+        - (0.00000199 * T * T * RH * RH);
+    float resultado = (HI - 32.0) * 5.0 / 9.0;
+
+    // Protecao de seguranca: se por algum motivo o resultado sair de uma
+    // faixa fisicamente plausivel, descarta em vez de mandar lixo pro banco.
+    if (resultado < -50.0 || resultado > 100.0) {
+        return NAN;
+    }
+    return resultado;
+}
+
+String classificarIndiceCalor(float indiceCalor) {
+    if (isnan(indiceCalor)) return "";
+    if (indiceCalor > 54.0) return "perigo_extremo";
+    if (indiceCalor > 41.0) return "perigo";
+    if (indiceCalor > 32.0) return "atencao_extrema";
+    if (indiceCalor > 27.0) return "atencao";
+    return "normal";
 }
 
 String classificar(float indice) {
@@ -768,6 +831,9 @@ void gravarRegistroPendente() {
     registro.ITU = (!isnan(registro.tempAr) && !isnan(registro.umidAr))
         ? calcularITU(registro.tempAr, registro.umidAr) : NAN;
 
+    registro.indiceCalor = (!isnan(registro.tempAr) && !isnan(registro.umidAr))
+        ? calcularIndiceCalor(registro.tempAr, registro.umidAr) : NAN;
+
     registro.enviado = false;
 
     if (eepromDisponivel) {
@@ -825,6 +891,10 @@ String montarJSON(const RegistroMeteorologico &r) {
     if (!isnan(r.ITU)) {
         json["itu"] = r.ITU;
         json["itu_classificacao"] = classificar(r.ITU);
+    }
+    if (!isnan(r.indiceCalor)) {
+        json["indice_calor"] = r.indiceCalor;
+        json["indice_calor_classificacao"] = classificarIndiceCalor(r.indiceCalor);
     }
 
     json["tipo_agregacao"] = "agregado";

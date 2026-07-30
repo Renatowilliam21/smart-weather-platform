@@ -26,6 +26,8 @@ class StoreLeituraRequest extends FormRequest
             'co2_ppm' => 'nullable|numeric',
             'tvoc_ppb' => 'nullable|numeric',
             'aqi' => 'nullable|integer|min:1|max:5',
+            'indice_calor' => 'nullable|numeric',
+            'indice_calor_classificacao' => 'nullable|string|max:30',
             'chuva_mm' => 'nullable|numeric',
             'vel_vento' => 'nullable|numeric',
             'dir_vento' => 'nullable|numeric',
