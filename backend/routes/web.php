@@ -95,6 +95,12 @@ Route::middleware('auth')->group(function () {
             $resultado['total_alertas_nao_resolvidos'] = \App\Models\AlertaDisparado::where('alerta_config_id', $configItgu->id)->where('resolvido', false)->count();
             $resultado['ids_nao_resolvidos'] = \App\Models\AlertaDisparado::where('alerta_config_id', $configItgu->id)->where('resolvido', false)->pluck('id')->toArray();
         }
+        $configItguResolver = \App\Models\AlertaConfig::where('parametro', 'itgu')->where('valor_limite', 80)->first();
+        if ($configItguResolver) {
+            $qtdAntes = \App\Models\AlertaDisparado::where('alerta_config_id', $configItguResolver->id)->where('resolvido', false)->count();
+            \App\Models\AlertaDisparado::where('alerta_config_id', $configItguResolver->id)->where('resolvido', false)->update(['resolvido' => true, 'resolvido_em' => now()]);
+            $resultado['alertas_resolvidos_em_massa'] = $qtdAntes;
+        }
         return response()->json($resultado);
     });
 
