@@ -41,9 +41,10 @@ class AlertaService
                 if (! $jaTinhaAlertaAtivo) {
                     $this->notificarDisparo($alertaDisparado);
                 }
-            } else {
-                // Valor voltou a ficar dentro do limite: resolve automaticamente
-                // qualquer alerta ainda ativo para esta configuração.
+            } elseif ($this->estaForaDaZonaDeHisterese($valor, $config->operador, $config->valor_limite)) {
+                // Só resolve quando o valor sair de vez da "zona de margem"
+                // (histerese de 2 pontos) - evita disparar/resolver
+                // repetidamente quando o valor oscila bem perto do limite.
                 $alertaAtivo = AlertaDisparado::where('alerta_config_id', $config->id)
                     ->where('resolvido', false)
                     ->latest()
@@ -58,6 +59,9 @@ class AlertaService
                     $this->notificarResolucao($alertaAtivo);
                 }
             }
+            // Se o valor nao viola o limite, mas ainda esta dentro da zona
+            // de margem (histerese), o alerta permanece ativo sem nova
+            // notificacao - nem dispara de novo, nem resolve ainda.
         }
     }
 
@@ -95,6 +99,23 @@ class AlertaService
             '<=' => $valor <= $limite,
             '=' => $valor == $limite,
             default => false,
+        };
+    }
+
+    // Histerese: so considera "de fato resolvido" quando o valor sai da
+    // zona de margem (2 pontos), evitando notificacoes repetidas quando o
+    // valor oscila bem perto do limite configurado.
+    private function estaForaDaZonaDeHisterese(float $valor, string $operador, float $limite): bool
+    {
+        $margem = 2.0;
+
+        return match ($operador) {
+            '>' => $valor <= $limite - $margem,
+            '>=' => $valor < $limite - $margem,
+            '<' => $valor >= $limite + $margem,
+            '<=' => $valor > $limite + $margem,
+            '=' => $valor != $limite,
+            default => true,
         };
     }
 }

@@ -151,6 +151,9 @@ export default function Detalhe({
                                             <p className="text-xs text-gray-500">
                                                 Valor lido: {alerta.valor_lido} (limite: {alerta.valor_limite})
                                             </p>
+                                            <p className="text-xs text-gray-400 mt-0.5">
+                                                {new Date(alerta.created_at).toLocaleString('pt-BR')}
+                                            </p>
                                         </div>
                                         <span
                                             className={`px-2 py-1 rounded text-xs font-medium shrink-0 ${

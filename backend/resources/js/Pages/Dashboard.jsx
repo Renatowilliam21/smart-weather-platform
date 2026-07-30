@@ -119,6 +119,9 @@ function ListaAlertas({ alertas, onResolver, onReabrir }) {
                                 <p className="text-xs text-gray-500">
                                     Valor lido: {alerta.valor_lido} (limite: {alerta.valor_limite})
                                 </p>
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                    {new Date(alerta.created_at).toLocaleString('pt-BR')}
+                                </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
                                 <span
