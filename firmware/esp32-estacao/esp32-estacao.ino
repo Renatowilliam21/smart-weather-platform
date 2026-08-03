@@ -1,6 +1,6 @@
 /***************************************************************************
  * SMART WEATHER PLATFORM
- * Firmware v2.8 (ESP32 WROOM-32 tradicional, GPIO21/22)
+ * Firmware v2.9 (ESP32 WROOM-32 tradicional, GPIO21/22)
  *
  * Sensores suportados (deteccao automatica por chip ID + redundancia):
  *   - DHT22 (globo negro) - sempre obrigatorio
@@ -26,6 +26,10 @@
  *   v2.6: adiciona sensor ENS160 (qualidade do ar: CO2eq/TVOC/AQI)
  *   v2.7: nao descarta o ciclo inteiro se so o sensor UV falhar
  *   v2.8: adiciona Teste de Degrau (OMM) e Indice de Calor NOAA
+ *   v2.9: corrige validacao do indice "proximoRegistro" da EEPROM (antes
+ *         so "totalRegistros" era validado, permitindo indice fora dos
+ *         limites fisicos se a EEPROM tivesse dado corrompido/nao
+ *         inicializado, travando o envio silenciosamente)
  ***************************************************************************/
 
 //==============================
@@ -261,7 +265,7 @@ void setup() {
     pinMode(BOTAO_RESET_PIN, INPUT_PULLUP);
 
     Serial.println("\n==============================");
-    Serial.println(" SMART WEATHER PLATFORM v2.8 ");
+    Serial.println(" SMART WEATHER PLATFORM v2.9 ");
     Serial.println(" ESP32 tradicional (GPIO21/22) ");
     Serial.println("==============================");
 
@@ -741,7 +745,14 @@ void carregarControleEEPROM() {
     totalRegistros = (lerEEPROM(0) << 8) | lerEEPROM(1);
     proximoRegistro = (lerEEPROM(2) << 8) | lerEEPROM(3);
 
-    if (totalRegistros > MAX_REGISTROS || totalRegistros < 0) {
+    // Valida os DOIS contadores independentemente. Antes, so
+    // "totalRegistros" era validado - se "proximoRegistro" viesse
+    // corrompido/nunca inicializado da EEPROM (ex: fila nova, dados de
+    // fabrica), o sistema aceitava um indice fora dos limites fisicos,
+    // gravando em endereco de memoria invalido e travando o envio
+    // silenciosamente, sem nenhuma mensagem de erro.
+    if (totalRegistros > MAX_REGISTROS || totalRegistros < 0
+        || proximoRegistro >= MAX_REGISTROS || proximoRegistro < 0) {
         totalRegistros = 0;
         proximoRegistro = 0;
     }

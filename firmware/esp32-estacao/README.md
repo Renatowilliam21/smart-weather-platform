@@ -186,3 +186,8 @@ sensor de ambiente dedicado, esses dois pares normalmente diferem.
   sensor UV ter dado leitura valida no ciclo, descartando temperatura/
   umidade/ITGU/pressao junto quando so o UV falhava. Agora so pula o
   ciclo se NENHUM sensor teve leitura valida.
+- v2.9: corrige validacao do indice "proximoRegistro" da fila EEPROM —
+  antes so "totalRegistros" era validado no boot, permitindo um indice
+  fora dos limites fisicos da EEPROM se os dados vierem corrompidos ou
+  nao inicializados, travando o envio silenciosamente (sem nenhuma
+  mensagem de erro) por gravar em endereco de memoria invalido.

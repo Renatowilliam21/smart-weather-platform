@@ -111,3 +111,5 @@ bovinos leiteiros em regiões semiáridas (diferente da forma do ITGU).
   API por construtor com endereco fixo).
 - v2.7: mesma correcao do esp32-estacao — condicao de pular agregacao
   agora verifica todos os sensores, nao so o UV.
+- v2.9: mesma correcao do esp32-estacao — valida "proximoRegistro" da
+  EEPROM independentemente, nao so "totalRegistros".
