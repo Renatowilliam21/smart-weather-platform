@@ -57,18 +57,41 @@ export default function AuthenticatedLayout({ header, children }) {
                                 >
                                     Histórico
                                 </NavLink>
-                                <NavLink
-                                    href={route('documentacao.sensores')}
-                                    active={route().current('documentacao.*')}
-                                >
-                                    Sensores
-                                </NavLink>
-                                <NavLink
-                                    href={route('documentacao.api')}
-                                    active={route().current('documentacao.api')}
-                                >
-                                    API
-                                </NavLink>
+                                <Dropdown className="h-full">
+                                    <Dropdown.Trigger className="h-full">
+                                        <button
+                                            type="button"
+                                            className={
+                                                'inline-flex h-full items-center border-b-2 px-1 pt-1 text-sm font-medium leading-5 transition duration-150 ease-in-out focus:outline-none ' +
+                                                (route().current('documentacao.*')
+                                                    ? 'border-indigo-400 text-gray-900 focus:border-indigo-700'
+                                                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 focus:border-gray-300 focus:text-gray-700')
+                                            }
+                                        >
+                                            Documentação
+                                            <svg
+                                                className="-me-0.5 ms-1 h-4 w-4"
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                viewBox="0 0 20 20"
+                                                fill="currentColor"
+                                            >
+                                                <path
+                                                    fillRule="evenodd"
+                                                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                                                    clipRule="evenodd"
+                                                />
+                                            </svg>
+                                        </button>
+                                    </Dropdown.Trigger>
+                                    <Dropdown.Content>
+                                        <Dropdown.Link href={route('documentacao.sensores')}>
+                                            Sensores
+                                        </Dropdown.Link>
+                                        <Dropdown.Link href={route('documentacao.api')}>
+                                            API
+                                        </Dropdown.Link>
+                                    </Dropdown.Content>
+                                </Dropdown>
                                 <NavLink
                                     href={route('api-tokens.index')}
                                     active={route().current('api-tokens.*')}
