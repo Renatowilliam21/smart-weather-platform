@@ -120,4 +120,57 @@ class SerieMetricaService
 
         return $serie;
     }
+
+    public function minMaxDoDia(int $estacaoId, string $metrica, \Carbon\Carbon $data): array
+    {
+        return $this->minMaxMultiplasMetricas($estacaoId, [$metrica], $data)[$metrica]
+            ?? ['maximo' => null, 'minimo' => null];
+    }
+
+    // Busca a leitura inteira do dia em UMA consulta e calcula o min/max de
+    // varias metricas em memoria - evita N consultas separadas quando
+    // varios campos precisam de min/max ao mesmo tempo (ex: pagina de
+    // detalhe da estacao).
+    public function minMaxMultiplasMetricas(int $estacaoId, array $metricas, \Carbon\Carbon $data): array
+    {
+        $metricasValidas = array_values(array_intersect(
+            $metricas,
+            array_merge(self::METRICAS_PERMITIDAS, ['temp_globo_negro', 'umid_globo_negro'])
+        ));
+
+        if (empty($metricasValidas)) {
+            return [];
+        }
+
+        $inicio = $data->copy()->startOfDay();
+        $fim = $data->copy()->endOfDay();
+
+        $colunas = array_merge(['registrado_em'], $metricasValidas);
+
+        $leituras = \App\Models\Leitura::where('estacao_id', $estacaoId)
+            ->whereBetween('registrado_em', [$inicio, $fim])
+            ->get($colunas);
+
+        $resultado = [];
+
+        foreach ($metricasValidas as $metrica) {
+            $comValor = $leituras->whereNotNull($metrica);
+
+            $maximo = $comValor->sortByDesc($metrica)->first();
+            $minimo = $comValor->sortBy($metrica)->first();
+
+            $resultado[$metrica] = [
+                'maximo' => $maximo ? [
+                    'valor' => $maximo->{$metrica},
+                    'hora' => $maximo->registrado_em->format('H:i'),
+                ] : null,
+                'minimo' => $minimo ? [
+                    'valor' => $minimo->{$metrica},
+                    'hora' => $minimo->registrado_em->format('H:i'),
+                ] : null,
+            ];
+        }
+
+        return $resultado;
+    }
 }

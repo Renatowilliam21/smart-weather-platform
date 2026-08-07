@@ -22,13 +22,27 @@ const CLASSIFICACAO_CORES = {
     perigo: 'bg-red-100 text-red-800',
 };
 
-function CampoMetrica({ rotulo, valor, unidade = '', destaque = false }) {
+function CampoMetrica({ rotulo, valor, unidade = '', destaque = false, minMax = null }) {
     return (
         <div className={`rounded-lg p-4 text-center ${destaque ? 'bg-gray-800 text-white' : 'bg-gray-50'}`}>
             <p className={`text-2xl font-bold ${destaque ? 'text-white' : 'text-gray-800'}`}>
                 {valor ?? '—'}{valor !== null && valor !== undefined ? unidade : ''}
             </p>
             <p className={`text-xs mt-1 ${destaque ? 'text-gray-300' : 'text-gray-500'}`}>{rotulo}</p>
+            {minMax && (minMax.maximo || minMax.minimo) && (
+                <div className="border-t border-gray-200 mt-2 pt-2 flex justify-center gap-3">
+                    {minMax.maximo && (
+                        <span className="text-xs text-red-600">
+                            ↑ {minMax.maximo.valor}{unidade} {minMax.maximo.hora}
+                        </span>
+                    )}
+                    {minMax.minimo && (
+                        <span className="text-xs text-blue-600">
+                            ↓ {minMax.minimo.valor}{unidade} {minMax.minimo.hora}
+                        </span>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -36,6 +50,7 @@ function CampoMetrica({ rotulo, valor, unidade = '', destaque = false }) {
 export default function Detalhe({
     estacao,
     ultimaLeitura,
+    minMax,
     serieMetrica,
     metricasDisponiveis,
     metricaSelecionada,
@@ -89,18 +104,18 @@ export default function Detalhe({
                         {ultimaLeitura ? (
                             <>
                                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                                    <CampoMetrica rotulo="Temp. Ar" valor={ultimaLeitura.temperatura_ar} unidade="°C" />
-                                    <CampoMetrica rotulo="Umidade" valor={ultimaLeitura.umidade_ar} unidade="%" />
-                                    <CampoMetrica rotulo="ITGU" valor={ultimaLeitura.itgu} />
-                                    <CampoMetrica rotulo="ITU" valor={ultimaLeitura.itu} />
+                                    <CampoMetrica rotulo="Temp. Ar" valor={ultimaLeitura.temperatura_ar} unidade="°C" minMax={minMax.temperatura_ar} />
+                                    <CampoMetrica rotulo="Umidade" valor={ultimaLeitura.umidade_ar} unidade="%" minMax={minMax.umidade_ar} />
+                                    <CampoMetrica rotulo="ITGU" valor={ultimaLeitura.itgu} minMax={minMax.itgu} />
+                                    <CampoMetrica rotulo="ITU" valor={ultimaLeitura.itu} minMax={minMax.itu} />
                                     <CampoMetrica rotulo="Pressão" valor={ultimaLeitura.pressao} unidade=" hPa" />
                                     <CampoMetrica rotulo="Altitude" valor={ultimaLeitura.altitude} unidade=" m" />
-                                    <CampoMetrica rotulo="Luminosidade" valor={ultimaLeitura.luminosidade} unidade="%" />
-                                    <CampoMetrica rotulo="Índice UV" valor={ultimaLeitura.indice_uv} />
-                                    <CampoMetrica rotulo="CO2 eq." valor={ultimaLeitura.co2_ppm} unidade=" ppm" />
-                                    <CampoMetrica rotulo="TVOC" valor={ultimaLeitura.tvoc_ppb} unidade=" ppb" />
-                                    <CampoMetrica rotulo="Qualid. Ar" valor={ultimaLeitura.aqi} unidade="/5" />
-                                    <CampoMetrica rotulo="Temp. Globo Negro" valor={ultimaLeitura.temp_globo_negro} unidade="°C" />
+                                    <CampoMetrica rotulo="Luminosidade" valor={ultimaLeitura.luminosidade} unidade="%" minMax={minMax.luminosidade} />
+                                    <CampoMetrica rotulo="Índice UV" valor={ultimaLeitura.indice_uv} minMax={minMax.indice_uv} />
+                                    <CampoMetrica rotulo="CO2 eq." valor={ultimaLeitura.co2_ppm} unidade=" ppm" minMax={minMax.co2_ppm} />
+                                    <CampoMetrica rotulo="TVOC" valor={ultimaLeitura.tvoc_ppb} unidade=" ppb" minMax={minMax.tvoc_ppb} />
+                                    <CampoMetrica rotulo="Qualid. Ar" valor={ultimaLeitura.aqi} unidade="/5" minMax={minMax.aqi} />
+                                    <CampoMetrica rotulo="Temp. Globo Negro" valor={ultimaLeitura.temp_globo_negro} unidade="°C" minMax={minMax.temp_globo_negro} />
                                 </div>
                                 <p className="text-xs text-gray-400 mt-4">
                                     Atualizado em {new Date(ultimaLeitura.registrado_em).toLocaleString('pt-BR')}

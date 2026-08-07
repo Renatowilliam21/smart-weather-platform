@@ -23,6 +23,10 @@ class EstacaoController extends Controller
         return Inertia::render('Estacoes/Detalhe', [
             'estacao' => $estacao,
             'ultimaLeitura' => $estacao->leituras()->latest('registrado_em')->first(),
+            'minMax' => $this->servico->minMaxMultiplasMetricas($estacao->id, [
+                'temperatura_ar', 'umidade_ar', 'itgu', 'itu', 'luminosidade',
+                'indice_uv', 'co2_ppm', 'tvoc_ppb', 'aqi', 'temp_globo_negro',
+            ], now()),
             'serieMetrica' => $this->servico->serieMetricaPorPeriodo($estacao->id, $metrica, $periodo, $dataReferencia),
             'metricasDisponiveis' => SerieMetricaService::METRICAS_PERMITIDAS,
             'metricaSelecionada' => $metrica,
