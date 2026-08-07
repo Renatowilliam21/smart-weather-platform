@@ -7,7 +7,7 @@ function TabelaPinos({ pinos }) {
             <thead className="bg-gray-50 text-gray-600 uppercase text-xs">
                 <tr>
                     <th className="px-4 py-2">Pino do Sensor</th>
-                    <th className="px-4 py-2">Pino do ESP32</th>
+                    <th className="px-4 py-2">Pino</th>
                     <th className="px-4 py-2">Observação</th>
                 </tr>
             </thead>
@@ -24,7 +24,7 @@ function TabelaPinos({ pinos }) {
     );
 }
 
-function SensorCard({ titulo, status, descricao, campos, pinos, notas }) {
+function SensorCard({ titulo, status, descricao, campos, pinos, notas, aviso }) {
     const corStatus = status === 'instalado'
         ? 'bg-green-100 text-green-800'
         : 'bg-gray-100 text-gray-600';
@@ -33,25 +33,44 @@ function SensorCard({ titulo, status, descricao, campos, pinos, notas }) {
         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
             <div className="flex justify-between items-start mb-2">
                 <h3 className="font-semibold text-lg text-gray-800">{titulo}</h3>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${corStatus}`}>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${corStatus} shrink-0 ml-2`}>
                     {status === 'instalado' ? 'Instalado' : 'Previsto (não instalado)'}
                 </span>
             </div>
 
             <p className="text-sm text-gray-600">{descricao}</p>
 
-            <p className="text-xs text-gray-500 mt-2">
-                <strong>Campos no banco:</strong> {campos.join(', ')}
-            </p>
+            {campos && (
+                <p className="text-xs text-gray-500 mt-2">
+                    <strong>Campos no banco:</strong> {campos.join(', ')}
+                </p>
+            )}
 
             {pinos && <TabelaPinos pinos={pinos} />}
 
             {notas && (
+                <div className="mt-3 bg-gray-50 border border-gray-200 rounded p-3">
+                    <p className="text-xs text-gray-600">{notas}</p>
+                </div>
+            )}
+
+            {aviso && (
                 <div className="mt-3 bg-amber-50 border border-amber-200 rounded p-3">
-                    <p className="text-xs text-amber-800">{notas}</p>
+                    <p className="text-xs text-amber-800">⚠️ {aviso}</p>
                 </div>
             )}
         </div>
+    );
+}
+
+function Secao({ titulo, children }) {
+    return (
+        <>
+            <h3 className="font-semibold text-gray-700 text-sm uppercase tracking-wide pt-4">
+                {titulo}
+            </h3>
+            {children}
+        </>
     );
 }
 
@@ -60,7 +79,7 @@ export default function Sensores() {
         <AuthenticatedLayout
             header={
                 <h2 className="font-semibold text-xl text-gray-800 leading-tight">
-                    Documentação de Sensores — ESP32
+                    Documentação de Sensores e Hardware
                 </h2>
             }
         >
@@ -71,141 +90,247 @@ export default function Sensores() {
 
                     <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
                         <h3 className="font-semibold text-lg text-gray-800 mb-2">
-                            Referência Rápida de Pinos (ESP32)
+                            Modelos de Hardware Suportados
                         </h3>
                         <p className="text-sm text-gray-600 mb-4">
-                            Use sempre pinos <strong>ADC1</strong> (GPIO 32-39) para sensores analógicos —
-                            os pinos ADC2 têm conflito conhecido com o rádio WiFi e retornam leituras
-                            instáveis quando a rede está ativa.
+                            O sistema hoje suporta 3 firmwares diferentes, cada um com sua própria
+                            combinação de chip, pinagem e sensores. Todos enviam para o mesmo endpoint
+                            da API (<code className="text-xs bg-gray-100 px-1 rounded">POST /api/leituras</code>),
+                            então dá pra misturar modelos diferentes na mesma rede de estações sem problema.
                         </p>
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 text-gray-600 uppercase text-xs">
                                 <tr>
-                                    <th className="px-4 py-2">Sensor</th>
-                                    <th className="px-4 py-2">Tipo</th>
-                                    <th className="px-4 py-2">Pino ESP32</th>
+                                    <th className="px-4 py-2">Firmware</th>
+                                    <th className="px-4 py-2">Chip</th>
+                                    <th className="px-4 py-2">Pino I2C (SDA/SCL)</th>
+                                    <th className="px-4 py-2">Diferencial</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 <tr>
-                                    <td className="px-4 py-2">DHT22 (globo negro)</td>
-                                    <td className="px-4 py-2 text-gray-500">Digital</td>
-                                    <td className="px-4 py-2 font-mono font-semibold text-blue-700">GPIO 4</td>
+                                    <td className="px-4 py-2 font-mono text-xs">esp32-estacao</td>
+                                    <td className="px-4 py-2 text-gray-500">ESP32 WROOM-32 tradicional</td>
+                                    <td className="px-4 py-2 font-mono font-semibold text-blue-700">GPIO 21 / GPIO 22</td>
+                                    <td className="px-4 py-2 text-gray-500">Detecção automática de sensores por chip ID</td>
                                 </tr>
                                 <tr>
-                                    <td className="px-4 py-2">BME280 (ambiente)</td>
-                                    <td className="px-4 py-2 text-gray-500">I2C</td>
-                                    <td className="px-4 py-2 font-mono font-semibold text-blue-700">GPIO 21 (SDA) / GPIO 22 (SCL)</td>
+                                    <td className="px-4 py-2 font-mono text-xs">esp32-wemos-rtc-eeprom</td>
+                                    <td className="px-4 py-2 text-gray-500">ESP32 WROOM-32 (WeMos)</td>
+                                    <td className="px-4 py-2 font-mono font-semibold text-blue-700">GPIO 18 / GPIO 22</td>
+                                    <td className="px-4 py-2 text-gray-500">SDA no 18 — essa placa específica não expõe o GPIO 21</td>
                                 </tr>
                                 <tr>
-                                    <td className="px-4 py-2">GUVA-S12SD (UV)</td>
-                                    <td className="px-4 py-2 text-gray-500">Analógico</td>
-                                    <td className="px-4 py-2 font-mono font-semibold text-blue-700">GPIO 34 (ADC1)</td>
-                                </tr>
-                                <tr>
-                                    <td className="px-4 py-2">LDR (luminosidade)</td>
-                                    <td className="px-4 py-2 text-gray-500">Analógico</td>
-                                    <td className="px-4 py-2 font-mono font-semibold text-blue-700">GPIO 35 (ADC1)</td>
+                                    <td className="px-4 py-2 font-mono text-xs">esp-nodemcu-esp12e-oled</td>
+                                    <td className="px-4 py-2 text-gray-500">ESP8266 (NodeMCU ESP-12E)</td>
+                                    <td className="px-4 py-2 font-mono font-semibold text-blue-700">D6 / D5 (I2C via software)</td>
+                                    <td className="px-4 py-2 text-gray-500">Só DHT22 + LDR + display OLED local, sem sensores I2C ambientais</td>
                                 </tr>
                             </tbody>
                         </table>
+                        <p className="text-xs text-gray-500 mt-3">
+                            Para sensores analógicos nos modelos ESP32, use sempre pinos <strong>ADC1</strong> (GPIO 32-39) —
+                            os pinos ADC2 têm conflito conhecido com o rádio WiFi e retornam leituras
+                            instáveis quando a rede está ativa.
+                        </p>
                     </div>
 
-                    <h3 className="font-semibold text-gray-700 text-sm uppercase tracking-wide pt-2">
-                        Sensores Instalados
-                    </h3>
+                    <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
+                        <h3 className="font-semibold text-lg text-gray-800 mb-2">
+                            Prioridade de Sensores de Ambiente (Temperatura/Umidade do Ar)
+                        </h3>
+                        <p className="text-sm text-gray-600 mb-3">
+                            Os firmwares ESP32 detectam automaticamente quais sensores estão presentes
+                            e escolhem a fonte mais precisa disponível, com troca automática em tempo
+                            real se o sensor ativo parar de responder:
+                        </p>
+                        <div className="flex items-center gap-2 flex-wrap text-sm font-mono">
+                            <span className="px-3 py-1 bg-green-100 text-green-800 rounded">SHT41</span>
+                            <span className="text-gray-400">&gt;</span>
+                            <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded">BME280</span>
+                            <span className="text-gray-400">&gt;</span>
+                            <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded">AHT10</span>
+                            <span className="text-gray-400">&gt;</span>
+                            <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded">DHT22 (fallback)</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-3">
+                            Nenhum desses sensores é obrigatório — o sistema funciona com qualquer
+                            combinação, inclusive só com o DHT22.
+                        </p>
+                    </div>
 
-                    <SensorCard
-                        titulo="DHT22 — Temperatura e Umidade (Globo Negro)"
-                        status="instalado"
-                        descricao="Posicionado dentro de uma esfera de globo negro (normalmente uma esfera oca pintada de preto fosco), captura o efeito da radiação solar/térmica absorvida — usado para calcular o ITGU."
-                        campos={['temp_globo_negro', 'umid_globo_negro']}
-                        pinos={[
-                            { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
-                            { origem: 'GND', destino: 'GND', obs: 'Terra' },
-                            { origem: 'DATA', destino: 'GPIO 4', obs: 'Sinal digital (biblioteca DHT)' },
-                        ]}
-                        notas="Recomenda-se resistor de pull-up de 10kΩ entre DATA e VCC se o módulo não tiver um embutido. A maioria dos módulos DHT22 já vem com esse resistor na placa."
-                    />
+                    <Secao titulo="Sensores Instalados e Validados">
+                        <SensorCard
+                            titulo="DHT22 — Temperatura e Umidade (Globo Negro)"
+                            status="instalado"
+                            descricao="Posicionado dentro de uma esfera de globo negro, captura o efeito da radiação solar/térmica absorvida — usado para calcular o ITGU. É o único sensor obrigatório em todos os firmwares."
+                            campos={['temp_globo_negro', 'umid_globo_negro']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'DATA', destino: 'GPIO 4 (ESP32) / D4 (ESP8266)', obs: 'Sinal digital' },
+                            ]}
+                            notas="Recomenda-se resistor de pull-up de 10kΩ entre DATA e VCC se o módulo não tiver um embutido. Nos firmwares ESP32, o Teste de Degrau (OMM) rejeita saltos acima de 3°C entre leituras consecutivas."
+                        />
 
-                    <SensorCard
-                        titulo="BME280 — Temperatura, Umidade e Pressão (Ambiente)"
-                        status="instalado"
-                        descricao="Fica exposto ao ambiente externo, fora do globo negro — mede a temperatura de bulbo seco (sem efeito de radiação solar direta), usada para calcular o ITU."
-                        campos={['temperatura_ar', 'umidade_ar', 'pressao', 'altitude']}
-                        pinos={[
-                            { origem: 'VCC', destino: '3.3V', obs: 'Alimentação (NÃO use 5V, o BME280 é 3.3V)' },
-                            { origem: 'GND', destino: 'GND', obs: 'Terra' },
-                            { origem: 'SCL', destino: 'GPIO 22', obs: 'Clock I2C' },
-                            { origem: 'SDA', destino: 'GPIO 21', obs: 'Dados I2C' },
-                        ]}
-                        notas="Endereço I2C padrão: 0x76. Alguns módulos usam 0x77 — o firmware tenta os dois automaticamente na inicialização. Proteja da chuva direta (use um abrigo tipo Stevenson simplificado ou tampa perfurada)."
-                    />
+                        <SensorCard
+                            titulo="SHT41 (Sensirion) — Ambiente, Alta Precisão"
+                            status="instalado"
+                            descricao="Sensor I2C de alta precisão (±0.1°C, ±1.5% RH) — prioridade máxima na cadeia de sensores de ambiente quando presente."
+                            campos={['temperatura_ar', 'umidade_ar']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'SCL', destino: 'Pino SCL do modelo', obs: 'Clock I2C' },
+                                { origem: 'SDA', destino: 'Pino SDA do modelo', obs: 'Dados I2C' },
+                            ]}
+                            notas="Endereço I2C fixo: 0x44 (não conflita com nenhum outro sensor usado no sistema). Biblioteca: Adafruit SHT4x. Só disponível nos firmwares ESP32 (não no NodeMCU)."
+                        />
 
-                    <SensorCard
-                        titulo="GUVA-S12SD — Índice UV"
-                        status="instalado"
-                        descricao="Sensor analógico que mede radiação ultravioleta. A conversão para Índice UV é uma aproximação linear — para precisão científica, recomenda-se calibração com um medidor de referência."
-                        campos={['indice_uv']}
-                        pinos={[
-                            { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
-                            { origem: 'GND', destino: 'GND', obs: 'Terra' },
-                            { origem: 'SIG (OUT)', destino: 'GPIO 34', obs: 'Saída analógica (ADC1, obrigatório com WiFi ativo)' },
-                        ]}
-                    />
+                        <SensorCard
+                            titulo="BME280 / BMP280 — Ambiente e Pressão"
+                            status="instalado"
+                            descricao="BME280 mede temperatura, umidade e pressão; BMP280 mede só temperatura e pressão (sem umidade). O firmware identifica qual dos dois está presente pelo registrador de chip ID (0xD0), evitando confundir um com o outro."
+                            campos={['temperatura_ar', 'umidade_ar', 'pressao', 'altitude']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'NÃO use 5V, ambos são 3.3V' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'SCL', destino: 'Pino SCL do modelo', obs: 'Clock I2C' },
+                                { origem: 'SDA', destino: 'Pino SDA do modelo', obs: 'Dados I2C' },
+                            ]}
+                            notas="Endereço I2C: 0x76 ou 0x77 (o firmware tenta os dois). Chip ID: BME280=0x60, BMP280=0x58. Proteja da chuva direta (abrigo tipo Stevenson simplificado ou tampa perfurada)."
+                        />
 
-                    <SensorCard
-                        titulo="LDR — Luminosidade"
-                        status="instalado"
-                        descricao="Módulo de 4 pinos com resistor dependente de luz. Usa-se apenas a saída analógica (AO) — a saída digital (DO) tem granularidade muito baixa (só liga/desliga) para fins de monitoramento contínuo."
-                        campos={['luminosidade']}
-                        pinos={[
-                            { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
-                            { origem: 'GND', destino: 'GND', obs: 'Terra' },
-                            { origem: 'AO', destino: 'GPIO 35', obs: 'Saída analógica (ADC1) — usada pelo firmware' },
-                            { origem: 'DO', destino: 'Não conectado', obs: 'Saída digital — não utilizada' },
-                        ]}
-                        notas="A lógica de 'mais luz = leitura maior' pode variar entre módulos. Compare os valores no Serial Monitor entre sol e sombra para confirmar antes de calibrar alertas."
-                    />
+                        <SensorCard
+                            titulo="AHT10 — Ambiente (backup)"
+                            status="instalado"
+                            descricao="Sensor de temperatura/umidade usado como terceira opção na cadeia de prioridade, caso SHT41 e BME280 não estejam presentes ou parem de funcionar."
+                            campos={['temperatura_ar', 'umidade_ar']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'SCL', destino: 'Pino SCL do modelo', obs: 'Clock I2C' },
+                                { origem: 'SDA', destino: 'Pino SDA do modelo', obs: 'Dados I2C' },
+                            ]}
+                            aviso="Endereço I2C 0x38 — o MESMO endereço usado pelo AHT21 embutido no módulo ENS160. Não ligar os dois no mesmo barramento."
+                        />
 
-                    <h3 className="font-semibold text-gray-700 text-sm uppercase tracking-wide pt-4">
-                        Sensores Previstos (não instalados ainda)
-                    </h3>
+                        <SensorCard
+                            titulo="ENS160 — Qualidade do Ar (CO2eq/TVOC/AQI)"
+                            status="instalado"
+                            descricao="Sensor de gases (óxido metálico), mede CO2 equivalente, TVOC (compostos orgânicos voláteis totais) e um índice de qualidade do ar (AQI, escala 1-5). O módulo vem acompanhado de um AHT21 embutido, necessário para calibração interna do sensor de gás."
+                            campos={['co2_ppm', 'tvoc_ppb', 'aqi']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'SCL', destino: 'Pino SCL do modelo', obs: 'Clock I2C' },
+                                { origem: 'SDA', destino: 'Pino SDA do modelo', obs: 'Dados I2C' },
+                            ]}
+                            notas="Biblioteca: 'ENS160 - Adafruit Fork' (arquivo real: ScioSense_ENS160.h — API por construtor com endereço fixo, diferente do padrão Adafruit unified sensor dos demais sensores). Endereço: 0x52 ou 0x53."
+                            aviso="O AHT21 embutido nesse módulo usa o MESMO endereço I2C (0x38) do AHT10 usado em outras estações. Não ligar os dois no mesmo barramento — o AHT21 é obrigatório para a calibração do próprio ENS160, então é ele que deve permanecer conectado."
+                        />
 
-                    <SensorCard
-                        titulo="CCS811 ou SGP30 — CO2 e TVOC"
-                        status="previsto"
-                        descricao="Sensor de qualidade do ar via I2C, mede dióxido de carbono equivalente e compostos orgânicos voláteis totais."
-                        campos={['co2_ppm', 'tvoc_ppb']}
-                    />
+                        <SensorCard
+                            titulo="GUVA-S12SD — Índice UV"
+                            status="instalado"
+                            descricao="Sensor analógico que mede radiação ultravioleta. A conversão para Índice UV é uma aproximação linear."
+                            campos={['indice_uv']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'SIG (OUT)', destino: 'GPIO 34/35 (ESP32) ou pino ADC do modelo', obs: 'Saída analógica' },
+                            ]}
+                            notas="Sensível a contato instável no fio de sinal — leituras travadas em valores fixos e fora da faixa 0-15 (ex: sempre 4095 no ADC bruto) indicam fio solto, não erro de software."
+                        />
 
-                    <SensorCard
-                        titulo="Pluviômetro de Báscula (Tipping Bucket)"
-                        status="previsto"
-                        descricao="Mede volume de chuva por meio de um contador de pulsos magnéticos — cada 'báscula' representa uma quantidade fixa de mm de chuva (tipicamente 0.2mm ou 0.5mm por pulso)."
-                        campos={['chuva_mm']}
-                    />
+                        <SensorCard
+                            titulo="LDR — Luminosidade"
+                            status="instalado"
+                            descricao="Módulo com resistor dependente de luz. Usa-se apenas a saída analógica (AO)."
+                            campos={['luminosidade']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'AO', destino: 'Pino ADC do modelo', obs: 'Saída analógica — usada pelo firmware' },
+                            ]}
+                        />
 
-                    <SensorCard
-                        titulo="Anemômetro + Biruta"
-                        status="previsto"
-                        descricao="Anemômetro de copo mede velocidade do vento (geralmente via sensor de efeito Hall/pulsos); biruta com potenciômetro mede direção."
-                        campos={['vel_vento', 'dir_vento']}
-                    />
+                        <SensorCard
+                            titulo="RTC DS3231 — Relógio de Tempo Real"
+                            status="instalado"
+                            descricao="Mantém a hora correta mesmo com a estação desligada (bateria própria). Permite que o horário exato da leitura seja preservado mesmo em envios atrasados (fila offline)."
+                            campos={['registrado_em (preenchido pelo firmware, não pelo servidor)']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'SCL', destino: 'Pino SCL do modelo', obs: 'Clock I2C' },
+                                { origem: 'SDA', destino: 'Pino SDA do modelo', obs: 'Dados I2C' },
+                            ]}
+                            notas="Endereço I2C: 0x68. Opcional — se ausente, o servidor usa o horário de recebimento da requisição em vez do horário real da leitura."
+                        />
 
-                    <SensorCard
-                        titulo="Sensores de Solo"
-                        status="previsto"
-                        descricao="Sensor capacitivo de umidade do solo, sonda DS18B20 para temperatura do solo, e sensor de condutividade elétrica."
-                        campos={['solo_umidade', 'solo_temperatura', 'solo_condutividade']}
-                    />
+                        <SensorCard
+                            titulo="EEPROM AT24C32 — Fila de Envio Persistente"
+                            status="instalado"
+                            descricao="Memória externa usada como fila de envio que sobrevive a quedas de energia — até ~90 registros agregados (≈15h de autonomia offline nos modelos ESP32)."
+                            campos={['(não gera campo próprio — só evita perda de dados)']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'SCL', destino: 'Pino SCL do modelo', obs: 'Clock I2C' },
+                                { origem: 'SDA', destino: 'Pino SDA do modelo', obs: 'Dados I2C' },
+                            ]}
+                            notas="Endereço I2C: 0x50. Opcional — se ausente, usa um buffer de 1 registro na RAM (sem proteção contra queda de energia, mas com nova tentativa até conseguir enviar). Assim que instalada fisicamente, o firmware passa a usar a fila completa sozinho, sem alteração de código."
+                        />
 
-                    <SensorCard
-                        titulo="Monitoramento de Bateria"
-                        status="previsto"
-                        descricao="Para estações alimentadas por painel solar, um divisor de tensão resistivo conectado a um pino ADC permite monitorar o nível de carga da bateria."
-                        campos={['tensao_bateria']}
-                    />
+                        <SensorCard
+                            titulo="Display OLED SSD1306 (só no NodeMCU ESP8266)"
+                            status="instalado"
+                            descricao="Mostra localmente temperatura, umidade, luminosidade e status da fila de envio, sem precisar de cabo USB conectado."
+                            campos={['(só exibição local, não gera campo no banco)']}
+                            pinos={[
+                                { origem: 'SCL', destino: 'D5 (GPIO12)', obs: 'I2C via software' },
+                                { origem: 'SDA', destino: 'D6 (GPIO14)', obs: 'I2C via software' },
+                            ]}
+                        />
+                    </Secao>
+
+                    <Secao titulo="Sensores Previstos (não instalados ainda)">
+                        <SensorCard
+                            titulo="Sensor de Bulbo Úmido Natural"
+                            status="previsto"
+                            descricao="Necessário para calcular o IBUTG (Índice de Bulbo Úmido Termômetro de Globo, NR-15/ISO 7243) — índice de segurança ocupacional para trabalhadores expostos ao sol, diferente do ITGU já calculado (que é focado em conforto térmico animal)."
+                            campos={['ibutg (planejado)']}
+                        />
+
+                        <SensorCard
+                            titulo="Pluviômetro de Báscula (Tipping Bucket)"
+                            status="previsto"
+                            descricao="Mede volume de chuva por meio de um contador de pulsos magnéticos — cada 'báscula' representa uma quantidade fixa de mm de chuva (tipicamente 0.2mm ou 0.5mm por pulso)."
+                            campos={['chuva_mm']}
+                        />
+
+                        <SensorCard
+                            titulo="Anemômetro + Biruta"
+                            status="previsto"
+                            descricao="Anemômetro de copo mede velocidade do vento (geralmente via sensor de efeito Hall/pulsos); biruta com potenciômetro mede direção."
+                            campos={['vel_vento', 'dir_vento']}
+                        />
+
+                        <SensorCard
+                            titulo="Sensores de Solo"
+                            status="previsto"
+                            descricao="Sensor capacitivo de umidade do solo, sonda DS18B20 para temperatura do solo, e sensor de condutividade elétrica."
+                            campos={['solo_umidade', 'solo_temperatura', 'solo_condutividade']}
+                        />
+
+                        <SensorCard
+                            titulo="Monitoramento de Bateria"
+                            status="previsto"
+                            descricao="Para estações alimentadas por painel solar/bateria, um divisor de tensão resistivo conectado a um pino ADC permite monitorar o nível de carga."
+                            campos={['tensao_bateria']}
+                        />
+                    </Secao>
 
                 </div>
             </div>
