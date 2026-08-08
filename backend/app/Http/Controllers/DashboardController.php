@@ -52,6 +52,15 @@ class DashboardController extends Controller
         ]);
     }
 
+    public function minMax(Request $request, \App\Models\Estacao $estacao)
+    {
+        $metrica = $request->string('metrica', 'itgu')->toString();
+
+        return response()->json(
+            $this->servico->minMaxDoDia($estacao->id, $metrica, now())
+        );
+    }
+
     private function estacoesComUltimaLeitura()
     {
         $idsOffline = EstacaoOfflineEvento::where('resolvido', false)

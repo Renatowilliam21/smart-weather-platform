@@ -43,11 +43,46 @@ function SeletorEstacao({ estacoes, estacaoSelecionada, onChange }) {
     );
 }
 
+function MetricaClicavel({ rotulo, valor, unidade, metrica, aoClicar, ativa }) {
+    return (
+        <div onClick={(e) => aoClicar(e, metrica)} className="cursor-pointer select-none">
+            <p className={`text-2xl font-bold ${ativa ? 'text-indigo-700' : 'text-gray-800'}`}>
+                {valor ?? '—'}{unidade}
+            </p>
+            <p className="text-xs text-gray-500">{rotulo}</p>
+        </div>
+    );
+}
+
 function EstacaoCard({ estacao }) {
     const leitura = estacao.ultima_leitura;
+    const [metricaExpandida, setMetricaExpandida] = useState(null);
+    const [dadosMinMax, setDadosMinMax] = useState(null);
+    const [carregando, setCarregando] = useState(false);
+
     const cor = leitura?.itgu_classificacao
         ? CLASSIFICACAO_CORES[leitura.itgu_classificacao] ?? 'bg-gray-100 text-gray-800'
         : 'bg-gray-100 text-gray-800';
+
+    const clicarMetrica = (e, metrica) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (metricaExpandida === metrica) {
+            setMetricaExpandida(null);
+            setDadosMinMax(null);
+            return;
+        }
+
+        setMetricaExpandida(metrica);
+        setDadosMinMax(null);
+        setCarregando(true);
+
+        fetch(route('dashboard.min-max', estacao.id) + `?metrica=${metrica}`)
+            .then((res) => res.json())
+            .then((dados) => setDadosMinMax(dados))
+            .finally(() => setCarregando(false));
+    };
 
     return (
         <Link href={route('estacoes.show', estacao.id)} className={`block bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 hover:shadow-md transition-shadow ${estacao.offline ? "ring-2 ring-red-300" : ""}`}>
@@ -69,32 +104,60 @@ function EstacaoCard({ estacao }) {
                     </span>
                 )}
             </div>
-
             {leitura ? (
-                <div className="grid grid-cols-3 gap-4 text-center">
-                    <div>
-                        <p className="text-2xl font-bold text-gray-800">
-                            {leitura.temperatura_ar ?? '—'}°
-                        </p>
-                        <p className="text-xs text-gray-500">Temp. Ar</p>
+                <>
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                        <MetricaClicavel
+                            rotulo="Temp. Ar"
+                            valor={leitura.temperatura_ar}
+                            unidade="°"
+                            metrica="temperatura_ar"
+                            aoClicar={clicarMetrica}
+                            ativa={metricaExpandida === 'temperatura_ar'}
+                        />
+                        <MetricaClicavel
+                            rotulo="Umidade"
+                            valor={leitura.umidade_ar}
+                            unidade="%"
+                            metrica="umidade_ar"
+                            aoClicar={clicarMetrica}
+                            ativa={metricaExpandida === 'umidade_ar'}
+                        />
+                        <MetricaClicavel
+                            rotulo="ITGU"
+                            valor={leitura.itgu}
+                            unidade=""
+                            metrica="itgu"
+                            aoClicar={clicarMetrica}
+                            ativa={metricaExpandida === 'itgu'}
+                        />
                     </div>
-                    <div>
-                        <p className="text-2xl font-bold text-gray-800">
-                            {leitura.umidade_ar ?? '—'}%
-                        </p>
-                        <p className="text-xs text-gray-500">Umidade</p>
-                    </div>
-                    <div>
-                        <p className="text-2xl font-bold text-gray-800">
-                            {leitura.itgu ?? '—'}
-                        </p>
-                        <p className="text-xs text-gray-500">ITGU</p>
-                    </div>
-                </div>
+                    {metricaExpandida && (
+                        <div className="bg-gray-50 rounded-lg mt-3 px-4 py-2 flex justify-center gap-4">
+                            {carregando ? (
+                                <span className="text-xs text-gray-400">Carregando...</span>
+                            ) : (
+                                <>
+                                    {dadosMinMax?.maximo ? (
+                                        <span className="text-xs text-red-600">
+                                            ↑ Máx {dadosMinMax.maximo.valor} às {dadosMinMax.maximo.hora}
+                                        </span>
+                                    ) : (
+                                        <span className="text-xs text-gray-400">Sem dado de máximo hoje</span>
+                                    )}
+                                    {dadosMinMax?.minimo && (
+                                        <span className="text-xs text-blue-600">
+                                            ↓ Mín {dadosMinMax.minimo.valor} às {dadosMinMax.minimo.hora}
+                                        </span>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
+                </>
             ) : (
                 <p className="text-sm text-gray-400">Sem leituras registradas</p>
             )}
-
             {leitura?.registrado_em && (
                 <p className="text-xs text-gray-400 mt-4">
                     Atualizado em {new Date(leitura.registrado_em).toLocaleString('pt-BR')}
@@ -103,7 +166,6 @@ function EstacaoCard({ estacao }) {
         </Link>
     );
 }
-
 function ListaAlertas({ alertas, onResolver, onReabrir }) {
     return (
         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
