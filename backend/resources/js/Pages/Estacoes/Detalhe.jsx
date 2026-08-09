@@ -22,22 +22,29 @@ const CLASSIFICACAO_CORES = {
     perigo: 'bg-red-100 text-red-800',
 };
 
-function CampoMetrica({ rotulo, valor, unidade = '', destaque = false, minMax = null }) {
+function classificarUmidade(valor) {
+    if (valor === null || valor === undefined) return null;
+    if (valor < 30) return 'text-red-600';
+    if (valor <= 40) return 'text-orange-500';
+    return 'text-blue-600';
+}
+
+function CampoMetrica({ rotulo, valor, unidade = '', destaque = false, minMax = null, corValor = null, ehUmidade = false }) {
     return (
         <div className={`rounded-lg p-4 text-center ${destaque ? 'bg-gray-800 text-white' : 'bg-gray-50'}`}>
-            <p className={`text-2xl font-bold ${destaque ? 'text-white' : 'text-gray-800'}`}>
+            <p className={`text-2xl font-bold ${destaque ? 'text-white' : (corValor ?? 'text-gray-800')}`}>
                 {valor ?? '—'}{valor !== null && valor !== undefined ? unidade : ''}
             </p>
             <p className={`text-xs mt-1 ${destaque ? 'text-gray-300' : 'text-gray-500'}`}>{rotulo}</p>
             {minMax && (minMax.maximo || minMax.minimo) && (
                 <div className="border-t border-gray-200 mt-2 pt-2 flex justify-center gap-3">
                     {minMax.maximo && (
-                        <span className="text-xs text-red-600">
+                        <span className={`text-xs ${ehUmidade ? classificarUmidade(minMax.maximo.valor) : 'text-red-600'}`}>
                             ↑ {minMax.maximo.valor}{unidade} {minMax.maximo.hora}
                         </span>
                     )}
                     {minMax.minimo && (
-                        <span className="text-xs text-blue-600">
+                        <span className={`text-xs ${ehUmidade ? classificarUmidade(minMax.minimo.valor) : 'text-blue-600'}`}>
                             ↓ {minMax.minimo.valor}{unidade} {minMax.minimo.hora}
                         </span>
                     )}
@@ -105,7 +112,7 @@ export default function Detalhe({
                             <>
                                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                                     <CampoMetrica rotulo="Temp. Ar" valor={ultimaLeitura.temperatura_ar} unidade="°C" minMax={minMax.temperatura_ar} />
-                                    <CampoMetrica rotulo="Umidade" valor={ultimaLeitura.umidade_ar} unidade="%" minMax={minMax.umidade_ar} />
+                                    <CampoMetrica rotulo="Umidade" valor={ultimaLeitura.umidade_ar} unidade="%" minMax={minMax.umidade_ar} corValor={classificarUmidade(ultimaLeitura.umidade_ar)} ehUmidade />
                                     <CampoMetrica rotulo="ITGU" valor={ultimaLeitura.itgu} minMax={minMax.itgu} />
                                     <CampoMetrica rotulo="ITU" valor={ultimaLeitura.itu} minMax={minMax.itu} />
                                     <CampoMetrica rotulo="Pressão" valor={ultimaLeitura.pressao} unidade=" hPa" />

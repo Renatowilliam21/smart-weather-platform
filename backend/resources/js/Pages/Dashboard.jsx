@@ -43,10 +43,21 @@ function SeletorEstacao({ estacoes, estacaoSelecionada, onChange }) {
     );
 }
 
+function classificarUmidade(valor) {
+    if (valor === null || valor === undefined) return null;
+    if (valor < 30) return 'text-red-600';
+    if (valor <= 40) return 'text-orange-500';
+    return 'text-blue-600';
+}
+
 function MetricaClicavel({ rotulo, valor, unidade, metrica, aoClicar, ativa }) {
     return (
         <div onClick={(e) => aoClicar(e, metrica)} className="cursor-pointer select-none">
-            <p className={`text-2xl font-bold ${ativa ? 'text-indigo-700' : 'text-gray-800'}`}>
+            <p className={`text-2xl font-bold ${
+                ativa
+                    ? 'text-indigo-700'
+                    : (metrica === 'umidade_ar' ? classificarUmidade(valor) : null) ?? 'text-gray-800'
+            }`}>
                 {valor ?? '—'}{unidade}
             </p>
             <p className="text-xs text-gray-500">{rotulo}</p>
@@ -139,14 +150,22 @@ function EstacaoCard({ estacao }) {
                             ) : (
                                 <>
                                     {dadosMinMax?.maximo ? (
-                                        <span className="text-xs text-red-600">
+                                        <span className={`text-xs ${
+                                            metricaExpandida === 'umidade_ar'
+                                                ? classificarUmidade(dadosMinMax.maximo.valor)
+                                                : 'text-red-600'
+                                        }`}>
                                             ↑ Máx {dadosMinMax.maximo.valor} às {dadosMinMax.maximo.hora}
                                         </span>
                                     ) : (
                                         <span className="text-xs text-gray-400">Sem dado de máximo hoje</span>
                                     )}
                                     {dadosMinMax?.minimo && (
-                                        <span className="text-xs text-blue-600">
+                                        <span className={`text-xs ${
+                                            metricaExpandida === 'umidade_ar'
+                                                ? classificarUmidade(dadosMinMax.minimo.valor)
+                                                : 'text-blue-600'
+                                        }`}>
                                             ↓ Mín {dadosMinMax.minimo.valor} às {dadosMinMax.minimo.hora}
                                         </span>
                                     )}
