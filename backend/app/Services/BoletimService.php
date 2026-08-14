@@ -223,7 +223,7 @@ class BoletimService
         $porMes = Leitura::where('estacao_id', $estacaoId)
             ->whereBetween('registrado_em', [$inicio, $fim])
             ->whereNotNull($metrica)
-            ->selectRaw("MONTH(registrado_em) as mes, AVG($metrica) as media")
+            ->selectRaw("EXTRACT(MONTH FROM registrado_em) as mes, AVG($metrica) as media")
             ->groupBy('mes')
             ->get()
             ->keyBy('mes');
@@ -266,7 +266,7 @@ class BoletimService
     {
         $porDia = Leitura::where('estacao_id', $estacaoId)
             ->whereBetween('registrado_em', [$inicio, $fim])
-            ->selectRaw('DATE(registrado_em) as dia, MAX(temperatura_ar) as maximo, MIN(temperatura_ar) as minimo, AVG(umidade_ar) as umid_media, MAX(itgu_classificacao = "perigo") as teve_alerta')
+            ->selectRaw('DATE(registrado_em) as dia, MAX(temperatura_ar) as maximo, MIN(temperatura_ar) as minimo, AVG(umidade_ar) as umid_media, MAX(CASE WHEN itgu_classificacao = \'perigo\' THEN 1 ELSE 0 END) as teve_alerta')
             ->groupBy('dia')
             ->orderBy('dia')
             ->get();
@@ -286,7 +286,7 @@ class BoletimService
 
         $porMes = Leitura::where('estacao_id', $estacaoId)
             ->whereYear('registrado_em', $ano)
-            ->selectRaw('MONTH(registrado_em) as mes, MAX(temperatura_ar) as maximo, MIN(temperatura_ar) as minimo, AVG(umidade_ar) as umid_media, COUNT(DISTINCT CASE WHEN itgu_classificacao = "perigo" THEN DATE(registrado_em) END) as dias_alerta')
+            ->selectRaw('EXTRACT(MONTH FROM registrado_em) as mes, MAX(temperatura_ar) as maximo, MIN(temperatura_ar) as minimo, AVG(umidade_ar) as umid_media, COUNT(DISTINCT CASE WHEN itgu_classificacao = \'perigo\' THEN DATE(registrado_em) END) as dias_alerta')
             ->groupBy('mes')
             ->get()
             ->keyBy('mes');
@@ -312,7 +312,7 @@ class BoletimService
         $porDia = Leitura::where('estacao_id', $estacaoId)
             ->whereBetween('registrado_em', [$inicio, $fim])
             ->whereNotNull('temperatura_ar')
-            ->selectRaw('DAY(registrado_em) as dia, MAX(temperatura_ar) as maximo')
+            ->selectRaw('EXTRACT(DAY FROM registrado_em) as dia, MAX(temperatura_ar) as maximo')
             ->groupBy('dia')
             ->get()
             ->keyBy('dia');
