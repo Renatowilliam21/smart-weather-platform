@@ -97,6 +97,12 @@ export default function Detalhe({
                             {ultimaLeitura.itgu_classificacao}
                         </span>
                     )}
+                    <Link
+                        href={route('boletim.show', estacao.id)}
+                        className="ml-auto px-3 py-1.5 bg-white border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                        Ver Boletim
+                    </Link>
                 </div>
             }
         >
