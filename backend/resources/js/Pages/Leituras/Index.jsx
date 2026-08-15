@@ -87,6 +87,7 @@ export default function Index({ leituras, estacoes, filtros }) {
 
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Histórico' }]}
             header={
                 <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                     Histórico de Leituras

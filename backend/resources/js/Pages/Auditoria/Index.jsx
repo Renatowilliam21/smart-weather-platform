@@ -40,6 +40,7 @@ function DetalhesMudanca({ properties }) {
 export default function Index({ registros }) {
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Auditoria' }]}
             header={
                 <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                     Log de Auditoria

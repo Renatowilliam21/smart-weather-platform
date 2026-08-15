@@ -7,6 +7,7 @@ import UpdateProfileInformationForm from './Partials/UpdateProfileInformationFor
 export default function Edit({ mustVerifyEmail, status }) {
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Perfil' }]}
             header={
                 <h2 className="text-xl font-semibold leading-tight text-gray-800">
                     Perfil

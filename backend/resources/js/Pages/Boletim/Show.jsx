@@ -271,6 +271,7 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
 
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Estações', href: route('estacoes.index') }, { label: estacao.nome, href: route('estacoes.show', estacao.id) }, { label: 'Boletim' }]}
             header={
                 <div className="flex items-center gap-3">
                     <Link href={route('estacoes.show', estacao.id)} className="text-gray-400 hover:text-gray-600">

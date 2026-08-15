@@ -34,6 +34,7 @@ export default function Index({ tokens, tokenGerado }) {
 
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Tokens API' }]}
             header={
                 <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                     Tokens de API

@@ -77,6 +77,7 @@ function Secao({ titulo, children }) {
 export default function Sensores() {
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Documentação' }, { label: 'Sensores' }]}
             header={
                 <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                     Documentação de Sensores e Hardware

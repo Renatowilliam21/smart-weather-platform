@@ -37,6 +37,7 @@ function Endpoint({ metodo, caminho, descricao, parametros, exemplo }) {
 export default function Api() {
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Documentação' }, { label: 'API' }]}
             header={
                 <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                     Documentação da API Pública

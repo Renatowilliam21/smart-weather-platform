@@ -189,6 +189,7 @@ export default function Detalhe({
 
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Estações', href: route('estacoes.index') }, { label: estacao.nome }]}
             header={
                 <div className="flex items-center gap-3">
                     <Link href={route('dashboard')} className="text-gray-400 hover:text-gray-600">

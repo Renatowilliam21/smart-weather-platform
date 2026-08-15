@@ -30,6 +30,7 @@ export default function Edit({ estacao }) {
 
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Estações', href: route('estacoes.index') }, { label: 'Editar' }]}
             header={
                 <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                     Editar Estação

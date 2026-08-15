@@ -21,6 +21,7 @@ export default function Create() {
 
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Estações', href: route('estacoes.index') }, { label: 'Nova' }]}
             header={
                 <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                     Nova Estação

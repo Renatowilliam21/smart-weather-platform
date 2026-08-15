@@ -20,6 +20,7 @@ export default function Edit({ alertaConfig, estacoes, parametros }) {
 
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Alertas', href: route('alertas-config.index') }, { label: 'Editar' }]}
             header={
                 <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                     Editar Configuração de Alerta

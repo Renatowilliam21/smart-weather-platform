@@ -10,6 +10,7 @@ export default function Index({ estacoes }) {
 
     return (
         <AuthenticatedLayout
+            breadcrumbs={[{ label: 'Estações' }]}
             header={
                 <div className="flex justify-between items-center">
                     <h2 className="font-semibold text-xl text-gray-800 leading-tight">
