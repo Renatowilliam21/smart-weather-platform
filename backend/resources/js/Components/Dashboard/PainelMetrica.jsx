@@ -36,7 +36,7 @@ export default function GraficoMetrica({ serieMetrica, estacoes, metricaSelecion
                 <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={dados}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="horario" interval={dados.length > 15 ? 1 : 0} />
+                        <XAxis dataKey="horario" interval={dados.length > 15 ? 2 : 0} tick={{ fontSize: 11 }} />
                         <YAxis domain={['auto', 'auto']} />
                         <Tooltip />
                         <Legend />
