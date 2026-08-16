@@ -92,6 +92,7 @@ class BoletimService
         $itguMax = $extremo('itgu', true);
 
         $comAlerta = $leituras->where('itgu_classificacao', 'perigo');
+        $horasDistintas = $comAlerta->map(fn ($l) => $l->registrado_em->format('H'))->unique();
         $faixaAlerta = null;
         if ($comAlerta->isNotEmpty()) {
             $ordenado = $comAlerta->sortBy('registrado_em');
@@ -107,7 +108,7 @@ class BoletimService
                 ['titulo' => 'Pico de UV', 'valor' => $uvMax?->indice_uv, 'unidade' => '', 'quando' => $uvMax?->registrado_em?->format('H:i'), 'cor' => 'uv'],
                 ['titulo' => 'Menor pressão', 'valor' => $pressaoMin?->pressao, 'unidade' => ' hPa', 'quando' => $pressaoMin?->registrado_em?->format('H:i'), 'cor' => 'pressao'],
                 ['titulo' => 'Maior ITGU', 'valor' => $itguMax?->itgu, 'unidade' => '', 'quando' => $itguMax?->registrado_em?->format('H:i'), 'extra' => $itguMax?->itgu_classificacao, 'cor' => 'quente'],
-                ['titulo' => 'Horas em alerta térmico', 'valor' => $comAlerta->count(), 'unidade' => 'h', 'quando' => $faixaAlerta, 'cor' => 'quente'],
+                ['titulo' => 'Horas em alerta térmico', 'valor' => $horasDistintas->count(), 'unidade' => 'h', 'quando' => $faixaAlerta, 'cor' => 'quente'],
             ],
         ];
     }
@@ -137,9 +138,8 @@ class BoletimService
         $diasComAlerta = Leitura::where('estacao_id', $estacaoId)
             ->whereBetween('registrado_em', [$inicio, $fim])
             ->where('itgu_classificacao', 'perigo')
-            ->selectRaw('DATE(registrado_em) as dia')
-            ->distinct()
-            ->count();
+            ->selectRaw('COUNT(DISTINCT DATE(registrado_em)) as total')
+            ->value('total');
 
         $fmt = fn ($r) => $r ? Carbon::parse($r->dia)->format('d/m') : null;
 
