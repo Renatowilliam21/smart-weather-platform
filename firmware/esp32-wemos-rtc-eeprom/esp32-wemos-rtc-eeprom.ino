@@ -1,6 +1,6 @@
 /***************************************************************************
  * SMART WEATHER PLATFORM
- * Firmware v2.9 (ESP32 WROOM-32 / WeMos, GPIO18/22 - sem GPIO21 disponivel)
+ * Firmware v2.10 (ESP32 WROOM-32 / WeMos, GPIO18/22 - sem GPIO21 disponivel)
  *
  * Sensores suportados (deteccao automatica por chip ID + redundancia):
  *   - DHT22 (globo negro) - sempre obrigatorio
@@ -32,6 +32,9 @@
  *         so "totalRegistros" era validado, permitindo indice fora dos
  *         limites fisicos se a EEPROM tivesse dado corrompido/nao
  *         inicializado, travando o envio silenciosamente)
+ *   v2.10: adiciona pluviometro de bascula (chuva_mm), anemometro
+ *          (vel_vento) e sensor VEML7700 (luminosidade em lux, prioridade
+ *          sobre o LDR analogico)
  ***************************************************************************/
 
 //==============================
@@ -50,6 +53,7 @@
 #include <Adafruit_BMP280.h>
 #include <Adafruit_AHTX0.h>
 #include <Adafruit_SHT4x.h>
+#include <Adafruit_VEML7700.h>
 #include "ScioSense_ENS160.h"
 #include <RTClib.h>
 #include <Preferences.h>
@@ -66,6 +70,8 @@
 #define SDA_PIN 18
 #define SCL_PIN 22
 #define BOTAO_RESET_PIN 0
+#define PLUVIOMETRO_PIN 26
+#define ANEMOMETRO_PIN 27
 #define ENDERECO_EEPROM_I2C 0x50
 
 //==============================
@@ -92,6 +98,7 @@ Adafruit_BME280 bme;
 Adafruit_BMP280 bmp;
 Adafruit_AHTX0 aht;
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
+Adafruit_VEML7700 veml = Adafruit_VEML7700();
 ScioSense_ENS160 ens160_addr52(ENS160_I2CADDR_0); // 0x52
 ScioSense_ENS160 ens160_addr53(ENS160_I2CADDR_1); // 0x53
 ScioSense_ENS160* ens160 = nullptr;
@@ -106,6 +113,7 @@ bool bmeDisponivel = false;
 bool bmpDisponivel = false;
 bool ahtDisponivel = false;
 bool sht4Disponivel = false;
+bool vemlDisponivel = false;
 bool ens160Disponivel = false;
 bool rtcDisponivel = false;
 bool eepromDisponivel = false;
@@ -207,6 +215,7 @@ struct RegistroMeteorologico {
     float co2, tvoc, aqi;
     float ITGU, ITU;
     float indiceCalor;
+    float chuvaMm, velVento;
     bool enviado;
     uint32_t checksum;
 };
@@ -216,6 +225,30 @@ const int ENDERECO_CONTROLE = 0;
 const int ENDERECO_DADOS = 32;
 const int CAPACIDADE_EEPROM_BYTES = 4096;
 const int MAX_REGISTROS = (CAPACIDADE_EEPROM_BYTES - ENDERECO_DADOS) / TAM_REGISTRO;
+
+const float MM_POR_PULSO_CHUVA = 0.5;
+volatile unsigned long pulsosChuvaContador = 0;
+volatile unsigned long ultimoPulsoChuvaMs = 0;
+
+const float CONSTANTE_ANEMOMETRO = 2.4;
+volatile unsigned long pulsosVentoContador = 0;
+volatile unsigned long ultimoPulsoVentoMs = 0;
+
+void IRAM_ATTR isrPluviometro() {
+    unsigned long agora = millis();
+    if (agora - ultimoPulsoChuvaMs > 15) {
+        pulsosChuvaContador++;
+        ultimoPulsoChuvaMs = agora;
+    }
+}
+
+void IRAM_ATTR isrAnemometro() {
+    unsigned long agora = millis();
+    if (agora - ultimoPulsoVentoMs > 5) {
+        pulsosVentoContador++;
+        ultimoPulsoVentoMs = agora;
+    }
+}
 
 int totalRegistros = 0;
 int proximoRegistro = 0;
@@ -266,8 +299,13 @@ void setup() {
 
     pinMode(BOTAO_RESET_PIN, INPUT_PULLUP);
 
+    pinMode(PLUVIOMETRO_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(PLUVIOMETRO_PIN), isrPluviometro, FALLING);
+    pinMode(ANEMOMETRO_PIN, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(ANEMOMETRO_PIN), isrAnemometro, FALLING);
+
     Serial.println("\n==============================");
-    Serial.println(" SMART WEATHER PLATFORM v2.9 ");
+    Serial.println(" SMART WEATHER PLATFORM v2.10 ");
     Serial.println(" ESP32 WeMos (GPIO18/22) ");
     Serial.println("==============================");
 
@@ -446,6 +484,12 @@ void inicializarSensores() {
         Serial.println("ENS160 nao encontrado.");
     }
 
+    if (veml.begin()) {
+        vemlDisponivel = true;
+        Serial.println("VEML7700 encontrado (0x10) - luminosidade em lux, prioridade sobre o LDR analogico.");
+    } else {
+        Serial.println("VEML7700 nao encontrado. Luminosidade sera lida via LDR analogico (0-100).");
+    }
     rtcDisponivel = rtc.begin();
     if (rtcDisponivel) {
         Serial.println("RTC DS3231 encontrado (0x68).");
@@ -585,6 +629,9 @@ float lerUV() {
 }
 
 float lerLDR() {
+    if (vemlDisponivel) {
+        return veml.readLux();
+    }
     return map(analogRead(LDR_PIN), 0, 4095, 100, 0);
 }
 
@@ -847,6 +894,20 @@ void gravarRegistroPendente() {
     registro.indiceCalor = (!isnan(registro.tempAr) && !isnan(registro.umidAr))
         ? calcularIndiceCalor(registro.tempAr, registro.umidAr) : NAN;
 
+
+    noInterrupts();
+    unsigned long pulsosChuva = pulsosChuvaContador;
+    pulsosChuvaContador = 0;
+    interrupts();
+    registro.chuvaMm = pulsosChuva * MM_POR_PULSO_CHUVA;
+
+    noInterrupts();
+    unsigned long pulsosVento = pulsosVentoContador;
+    pulsosVentoContador = 0;
+    interrupts();
+    float segundosCiclo = INTERVALO_AGREGACAO_MS / 1000.0;
+    registro.velVento = (pulsosVento / segundosCiclo) * CONSTANTE_ANEMOMETRO;
+
     registro.enviado = false;
 
     if (eepromDisponivel) {
@@ -910,6 +971,8 @@ String montarJSON(const RegistroMeteorologico &r) {
         json["indice_calor_classificacao"] = classificarIndiceCalor(r.indiceCalor);
     }
 
+    json["chuva_mm"] = r.chuvaMm;
+    json["vel_vento"] = r.velVento;
     json["tipo_agregacao"] = "agregado";
 
     if (r.ano > 0) {

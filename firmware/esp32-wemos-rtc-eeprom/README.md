@@ -113,3 +113,5 @@ bovinos leiteiros em regiões semiáridas (diferente da forma do ITGU).
   agora verifica todos os sensores, nao so o UV.
 - v2.9: mesma correcao do esp32-estacao — valida "proximoRegistro" da
   EEPROM independentemente, nao so "totalRegistros".
+- v2.10: mesma adicao do esp32-estacao — pluviometro (GPIO26), anemometro
+  (GPIO27) e VEML7700 (luminosidade em lux, prioridade sobre o LDR).

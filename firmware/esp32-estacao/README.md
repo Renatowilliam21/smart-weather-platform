@@ -191,3 +191,7 @@ sensor de ambiente dedicado, esses dois pares normalmente diferem.
   fora dos limites fisicos da EEPROM se os dados vierem corrompidos ou
   nao inicializados, travando o envio silenciosamente (sem nenhuma
   mensagem de erro) por gravar em endereco de memoria invalido.
+- v2.10: adiciona pluviometro de bascula (chuva_mm, GPIO26, contagem por
+  interrupcao com debounce), anemometro (vel_vento, GPIO27, mesma tecnica),
+  e sensor VEML7700 (luminosidade em lux via I2C, endereco 0x10, prioridade
+  sobre o LDR analogico quando presente).
