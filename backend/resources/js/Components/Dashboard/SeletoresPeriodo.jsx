@@ -9,6 +9,8 @@ export const METRICAS = {
     tvoc_ppb: { rotulo: 'TVOC', unidade: 'ppb' },
     aqi: { rotulo: 'Índice de Qualidade do Ar', unidade: '(1-5)' },
     indice_calor: { rotulo: 'Índice de Calor (NOAA)', unidade: '°C' },
+    chuva_mm: { rotulo: 'Chuva', unidade: ' mm' },
+    vel_vento: { rotulo: 'Vel. Vento', unidade: ' km/h' },
 };
 
 export function SeletorMetrica({ metricasDisponiveis, metricaSelecionada, onChange }) {

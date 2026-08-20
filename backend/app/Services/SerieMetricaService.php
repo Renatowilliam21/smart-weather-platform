@@ -10,7 +10,7 @@ class SerieMetricaService
 {
     public const METRICAS_PERMITIDAS = [
         'itgu', 'itu', 'temperatura_ar', 'umidade_ar', 'luminosidade', 'indice_uv',
-        'co2_ppm', 'tvoc_ppb', 'aqi', 'indice_calor',
+        'co2_ppm', 'tvoc_ppb', 'aqi', 'indice_calor', 'chuva_mm', 'vel_vento',
     ];
 
     public const PERIODOS_PERMITIDOS = ['dia', 'mes', 'ano'];

@@ -240,6 +240,8 @@ export default function Detalhe({
                                         <CampoMetrica rotulo="TVOC" valor={ultimaLeitura.tvoc_ppb} unidade=" ppb" minMax={minMax.tvoc_ppb} />
                                         <CampoMetrica rotulo="Qualid. Ar" valor={ultimaLeitura.aqi} unidade="/5" minMax={minMax.aqi} />
                                         <CampoMetrica rotulo="Temp. Globo Negro" valor={ultimaLeitura.temp_globo_negro} unidade="°C" minMax={minMax.temp_globo_negro} />
+                                        <CampoMetrica rotulo="Chuva" valor={ultimaLeitura.chuva_mm} unidade=" mm" />
+                                        <CampoMetrica rotulo="Vel. Vento" valor={ultimaLeitura.vel_vento} unidade=" km/h" />
                                     </div>
                                     <p className="text-xs text-gray-400 mt-4">
                                         Atualizado em {new Date(ultimaLeitura.registrado_em).toLocaleString('pt-BR')}

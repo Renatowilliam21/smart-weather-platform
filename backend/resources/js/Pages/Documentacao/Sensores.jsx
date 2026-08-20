@@ -203,9 +203,9 @@ export default function Sensores() {
                         />
 
                         <SensorCard
-                            titulo="AHT10 — Ambiente (backup)"
+                            titulo="AHT10/AHT20 — Ambiente (backup)"
                             status="instalado"
-                            descricao="Sensor de temperatura/umidade usado como terceira opção na cadeia de prioridade, caso SHT41 e BME280 não estejam presentes ou parem de funcionar."
+                            descricao="Sensor de temperatura/umidade usado como terceira opção na cadeia de prioridade, caso SHT41 e BME280 não estejam presentes ou parem de funcionar. AHT20 é eletricamente compatível (mesmo endereço I2C, mesma família de chip da ASAIR) — detectado pelo mesmo código."
                             campos={['temperatura_ar', 'umidade_ar']}
                             pinos={[
                                 { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
@@ -245,10 +245,24 @@ export default function Sensores() {
                         />
 
                         <SensorCard
-                            titulo="LDR — Luminosidade"
+                            titulo="VEML7700 — Luminosidade (lux)"
                             status="instalado"
-                            descricao="Módulo com resistor dependente de luz. Usa-se apenas a saída analógica (AO)."
-                            campos={['luminosidade']}
+                            descricao="Sensor digital de luz ambiente via I2C — mede lux (unidade científica real), com alcance de 0 a ~120.000 lux. Prioridade máxima sobre o LDR analógico quando presente."
+                            campos={['luminosidade (em lux quando este sensor está presente)']}
+                            pinos={[
+                                { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
+                                { origem: 'GND', destino: 'GND', obs: 'Terra' },
+                                { origem: 'SCL', destino: 'Pino SCL do modelo', obs: 'Clock I2C' },
+                                { origem: 'SDA', destino: 'Pino SDA do modelo', obs: 'Dados I2C' },
+                            ]}
+                            notas="Endereço I2C fixo: 0x10 (não conflita com nenhum outro sensor do sistema). Biblioteca: Adafruit VEML7700."
+                        />
+
+                        <SensorCard
+                            titulo="LDR — Luminosidade (fallback)"
+                            status="instalado"
+                            descricao="Módulo com resistor dependente de luz. Usado como alternativa quando o VEML7700 não está presente — nesse caso, o valor é uma escala arbitrária 0-100, não lux de verdade."
+                            campos={['luminosidade (0-100, quando o VEML7700 não está presente)']}
                             pinos={[
                                 { origem: 'VCC', destino: '3.3V', obs: 'Alimentação' },
                                 { origem: 'GND', destino: 'GND', obs: 'Terra' },
@@ -294,6 +308,29 @@ export default function Sensores() {
                                 { origem: 'SDA', destino: 'D6 (GPIO14)', obs: 'I2C via software' },
                             ]}
                         />
+
+                        <SensorCard
+                            titulo="Pluviômetro de Báscula (Tipping Bucket)"
+                            status="instalado"
+                            descricao="Mede volume de chuva por meio de um contador de pulsos magnéticos — cada 'báscula' (basculamento do balde) gera um pulso, contado via interrupção no ESP32 (com debounce de 15ms contra ruído mecânico)."
+                            campos={['chuva_mm']}
+                            pinos={[
+                                { origem: 'VCC/Comum', destino: '3.3V ou GND (conforme o modelo)', obs: 'Chave magnética (reed switch), sem polaridade definida' },
+                                { origem: 'Sinal', destino: 'GPIO 26', obs: 'Interrupção digital (FALLING), pull-up interno' },
+                            ]}
+                            notas="Calibração atual: 0,5mm de chuva por pulso — valor a confirmar/recalibrar com o fabricante específico do sensor."
+                        />
+                        <SensorCard
+                            titulo="Anemômetro (Velocidade do Vento)"
+                            status="instalado"
+                            descricao="Anemômetro de copo, mede velocidade do vento via pulsos (efeito Hall/reed switch) — cada rotação gera um ou mais pulsos, contados via interrupção (debounce de 5ms)."
+                            campos={['vel_vento']}
+                            pinos={[
+                                { origem: 'VCC/Comum', destino: '3.3V ou GND (conforme o modelo)', obs: 'Sensor de pulso' },
+                                { origem: 'Sinal', destino: 'GPIO 27', obs: 'Interrupção digital (FALLING), pull-up interno' },
+                            ]}
+                            aviso="Fórmula de conversão (km/h = pulsos/s × 2,4) é um padrão comum para anemômetros de copo hobby, mas não foi calibrada com instrumento de referência para este modelo específico — tratar os valores como aproximados até a calibração."
+                        />
                     </Secao>
 
                     <Secao titulo="Sensores Previstos (não instalados ainda)">
@@ -304,20 +341,13 @@ export default function Sensores() {
                             campos={['ibutg (planejado)']}
                         />
 
-                        <SensorCard
-                            titulo="Pluviômetro de Báscula (Tipping Bucket)"
-                            status="previsto"
-                            descricao="Mede volume de chuva por meio de um contador de pulsos magnéticos — cada 'báscula' representa uma quantidade fixa de mm de chuva (tipicamente 0.2mm ou 0.5mm por pulso)."
-                            campos={['chuva_mm']}
-                        />
 
                         <SensorCard
-                            titulo="Anemômetro + Biruta"
+                            titulo="Biruta (Direção do Vento)"
                             status="previsto"
-                            descricao="Anemômetro de copo mede velocidade do vento (geralmente via sensor de efeito Hall/pulsos); biruta com potenciômetro mede direção."
-                            campos={['vel_vento', 'dir_vento']}
+                            descricao="Sensor de direção do vento (potenciômetro ou reed switches) — ainda não instalado. A estação já mede a velocidade do vento (anemômetro), só falta a direção."
+                            campos={['dir_vento']}
                         />
-
                         <SensorCard
                             titulo="Sensores de Solo"
                             status="previsto"
