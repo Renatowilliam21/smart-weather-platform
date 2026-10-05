@@ -1,6 +1,7 @@
 services:
 
   app:
+    image: smart-weather-platform-app
     build:
       context: .
       dockerfile: infrastructure/docker/php/Dockerfile

@@ -9,7 +9,7 @@ use App\Models\Leitura;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
-class DadosTesteSeeder extends Seeder
+class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
