@@ -111,8 +111,44 @@ services:
     networks:
       - weather-network
 
+  sonarqube:
+    image: sonarqube:community
+    container_name: swp_sonarqube
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      - SONAR_JDBC_URL=jdbc:postgresql://sonar-db:5432/sonar
+      - SONAR_JDBC_USERNAME=sonar
+      - SONAR_JDBC_PASSWORD=sonar
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    depends_on:
+      - sonar-db
+    networks:
+      - weather-network
+
+  sonar-db:
+    image: postgres:15-alpine
+    container_name: swp_sonar_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=sonar
+      - POSTGRES_PASSWORD=sonar
+      - POSTGRES_DB=sonar
+    volumes:
+      - sonar_db_data:/var/lib/postgresql/data
+    networks:
+      - weather-network
+
 volumes:
   mysql_data:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
+  sonar_db_data:
 
 networks:
   weather-network:

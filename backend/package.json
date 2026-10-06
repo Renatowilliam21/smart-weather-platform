@@ -4,7 +4,8 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "sonar": "docker run --rm -v \"%cd%:/usr/src\" sonarsource/sonar-scanner-cli"
     },
     "devDependencies": {
         "@headlessui/react": "^2.0.0",
