@@ -258,7 +258,7 @@ const int MAX_REGISTROS =
 
 // Pluviometro de bascula: cada pulso magnetico representa uma quantidade
 // fixa de chuva. TODO: confirmar/recalibrar com o fabricante do sensor.
-const float MM_POR_PULSO_CHUVA = 0.5;
+const float MM_POR_PULSO_CHUVA = 0.25;
 volatile unsigned long pulsosChuvaContador = 0;
 volatile unsigned long ultimoPulsoChuvaMs = 0;
 

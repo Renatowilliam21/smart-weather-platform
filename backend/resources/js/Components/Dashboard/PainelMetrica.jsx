@@ -20,6 +20,10 @@ export default function GraficoMetrica({ serieMetrica, estacoes, metricaSelecion
         }
         const nomeEstacao = nomesPorId[ponto.estacao_id] ?? `Estação ${ponto.estacao_id}`;
         dadosPorRotulo[chave][nomeEstacao] = ponto.valor !== null ? parseFloat(ponto.valor) : null;
+
+        if (metricaSelecionada === 'chuva_mm' && ponto.valor_acumulado !== undefined) {
+            dadosPorRotulo[chave][`${nomeEstacao} (Acumulado)`] = ponto.valor_acumulado !== null ? parseFloat(ponto.valor_acumulado) : null;
+        }
     });
 
     const dados = Object.values(dadosPorRotulo);
@@ -30,7 +34,8 @@ export default function GraficoMetrica({ serieMetrica, estacoes, metricaSelecion
     return (
         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
             <h3 className="font-semibold text-lg text-gray-800 mb-4">
-                {infoMetrica.rotulo} — Hoje (média por hora){infoMetrica.unidade ? ` (${infoMetrica.unidade})` : ''}
+                {infoMetrica.rotulo} — {metricaSelecionada === 'vel_vento' ? 'Máxima' : metricaSelecionada === 'chuva_mm' ? 'Total' : 'Média'} por período
+                {infoMetrica.unidade ? ` (${infoMetrica.unidade})` : ''}
             </h3>
             {dados.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
@@ -47,6 +52,17 @@ export default function GraficoMetrica({ serieMetrica, estacoes, metricaSelecion
                                 dataKey={nome}
                                 stroke={cores[i % cores.length]}
                                 connectNulls={false}
+                            />
+                        ))}
+                        {metricaSelecionada === 'chuva_mm' && nomesEstacoes.map((nome, i) => (
+                            <Line
+                                key={`${nome}_acumulado`}
+                                type="monotone"
+                                dataKey={`${nome} (Acumulado)`}
+                                stroke={cores[i % cores.length]}
+                                strokeDasharray="5 5"
+                                connectNulls={false}
+                                dot={false}
                             />
                         ))}
                     </LineChart>

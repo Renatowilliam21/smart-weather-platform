@@ -58,8 +58,10 @@ export function SeletorPeriodo({ periodosDisponiveis, periodoSelecionado, onChan
 export function ajustarData(dataISO, periodo, direcao) {
     const d = new Date(dataISO + 'T12:00:00');
     if (periodo === 'mes') {
+        d.setDate(1); // Evita bug do JS em meses com 31 dias (ex: 31/Out - 1 mes = 31/Set = 01/Out)
         d.setMonth(d.getMonth() + direcao);
     } else if (periodo === 'ano') {
+        d.setDate(1);
         d.setFullYear(d.getFullYear() + direcao);
     } else {
         d.setDate(d.getDate() + direcao);

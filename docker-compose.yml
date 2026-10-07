@@ -114,6 +114,8 @@ services:
   sonarqube:
     image: sonarqube:community
     container_name: swp_sonarqube
+    profiles:
+      - sonar
     restart: unless-stopped
     ports:
       - "9000:9000"
@@ -133,6 +135,8 @@ services:
   sonar-db:
     image: postgres:15-alpine
     container_name: swp_sonar_db
+    profiles:
+      - sonar
     restart: unless-stopped
     environment:
       - POSTGRES_USER=sonar

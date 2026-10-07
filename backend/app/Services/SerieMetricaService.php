@@ -102,18 +102,36 @@ class SerieMetricaService
 
         $mediasIndexadas = [];
         foreach ($leituras->groupBy(fn ($leitura) => $leitura->estacao_id . '_' . $leitura->registrado_em->format($formatoAgrupamento)) as $chaveComposta => $grupo) {
-            $mediasIndexadas[$chaveComposta] = round($grupo->avg($metrica), 2);
+            if ($metrica === 'vel_vento') {
+                $valor = $grupo->max($metrica);
+            } elseif ($metrica === 'chuva_mm') {
+                $valor = $grupo->sum($metrica);
+            } else {
+                $valor = $grupo->avg($metrica);
+            }
+            $mediasIndexadas[$chaveComposta] = round($valor, 2);
         }
 
         $serie = [];
+        $acumulados = [];
+        foreach ($estacoes as $estacao) {
+            $acumulados[$estacao->id] = 0;
+        }
+
         foreach ($rotulos as $chave => $rotulo) {
             foreach ($estacoes as $estacao) {
                 $indice = $estacao->id . '_' . $chave;
+                $valor = $mediasIndexadas[$indice] ?? null;
+
+                if ($metrica === 'chuva_mm' && $valor !== null) {
+                    $acumulados[$estacao->id] += $valor;
+                }
 
                 $serie[] = [
                     'estacao_id' => $estacao->id,
                     'rotulo' => $rotulo,
-                    'valor' => $mediasIndexadas[$indice] ?? null,
+                    'valor' => $valor,
+                    'valor_acumulado' => $metrica === 'chuva_mm' ? round($acumulados[$estacao->id], 2) : null,
                 ];
             }
         }
