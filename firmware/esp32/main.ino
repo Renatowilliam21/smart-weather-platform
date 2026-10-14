@@ -270,6 +270,10 @@ const float CONSTANTE_ANEMOMETRO = 2.4;
 volatile unsigned long pulsosVentoContador = 0;
 volatile unsigned long ultimoPulsoVentoMs = 0;
 
+const unsigned long INTERVALO_AMOSTRA_VENTO_MS = 3000;
+unsigned long ultimaAmostraVento = 0;
+float maxVelVentoCiclo = 0;
+
 void IRAM_ATTR isrPluviometro() {
   unsigned long agora = millis();
   if (agora - ultimoPulsoChuvaMs > 15) {
@@ -452,6 +456,20 @@ void loop() {
       ultimaTentativaEnvio == 0) {
     tentarDrenarFila();
     ultimaTentativaEnvio = agora;
+  }
+
+  if (agora - ultimaAmostraVento >= INTERVALO_AMOSTRA_VENTO_MS) {
+    noInterrupts();
+    unsigned long pulsos = pulsosVentoContador;
+    pulsosVentoContador = 0;
+    interrupts();
+
+    float velAtual =
+        (pulsos / (INTERVALO_AMOSTRA_VENTO_MS / 1000.0)) * CONSTANTE_ANEMOMETRO;
+    if (velAtual > maxVelVentoCiclo) {
+      maxVelVentoCiclo = velAtual;
+    }
+    ultimaAmostraVento = agora;
   }
 }
 
@@ -1016,14 +1034,10 @@ void gravarRegistroPendente() {
   interrupts();
   registro.chuvaMm = pulsosChuva * MM_POR_PULSO_CHUVA;
 
-  // Velocidade media do vento nesse ciclo
-  noInterrupts();
-  unsigned long pulsosVento = pulsosVentoContador;
-  pulsosVentoContador = 0;
-  interrupts();
-  float segundosCiclo = INTERVALO_AGREGACAO_MS / 1000.0;
-  registro.velVento = (pulsosVento / segundosCiclo) * CONSTANTE_ANEMOMETRO;
+  // Rajada maxima (Wind Gust) capturada no ciclo
+  registro.velVento = maxVelVentoCiclo;
   registro.direcaoVento = acDirecaoVento.media();
+  maxVelVentoCiclo = 0;
 
   registro.enviado = false;
 
