@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Estacao;
 use App\Models\Leitura;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class SerieMetricaService
 {
@@ -76,40 +77,58 @@ class SerieMetricaService
             ->when($estacaoId, fn ($query) => $query->where('id', $estacaoId))
             ->get(['id', 'nome']);
 
+        $driver = DB::connection()->getDriverName();
+
         if ($periodo === 'mes') {
             $inicio = $dataReferencia->copy()->startOfMonth();
             $fim = $dataReferencia->copy()->endOfMonth();
-            $formatoAgrupamento = 'd';
+            $expressaoPeriodo = match ($driver) {
+                'sqlite' => "strftime('%d', registrado_em)",
+                'pgsql' => "TO_CHAR(registrado_em, 'DD')",
+                default => "DATE_FORMAT(registrado_em, '%d')",
+            };
             $rotulos = collect(range(1, $fim->day))
                 ->mapWithKeys(fn ($dia) => [sprintf('%02d', $dia) => sprintf('%02d', $dia)]);
         } elseif ($periodo === 'ano') {
             $inicio = $dataReferencia->copy()->startOfYear();
             $fim = $dataReferencia->copy()->endOfYear();
-            $formatoAgrupamento = 'm';
+            $expressaoPeriodo = match ($driver) {
+                'sqlite' => "strftime('%m', registrado_em)",
+                'pgsql' => "TO_CHAR(registrado_em, 'MM')",
+                default => "DATE_FORMAT(registrado_em, '%m')",
+            };
             $rotulos = collect(self::NOMES_MESES_ABREV);
         } else {
             $inicio = $dataReferencia->copy()->startOfDay();
             $fim = $dataReferencia->copy()->endOfDay();
-            $formatoAgrupamento = 'H';
+            $expressaoPeriodo = match ($driver) {
+                'sqlite' => "strftime('%H', registrado_em)",
+                'pgsql' => "TO_CHAR(registrado_em, 'HH24')",
+                default => "DATE_FORMAT(registrado_em, '%H')",
+            };
             $rotulos = collect(range(0, 23))
                 ->mapWithKeys(fn ($hora) => [sprintf('%02d', $hora) => sprintf('%02d:00', $hora)]);
         }
 
-        $leituras = Leitura::whereBetween('registrado_em', [$inicio, $fim])
+        $funcaoAgregacao = match ($metrica) {
+            'vel_vento' => "MAX({$metrica})",
+            'chuva_mm' => "SUM({$metrica})",
+            default => "AVG({$metrica})",
+        };
+
+        // Realiza agregação direta no banco de dados para evitar estouro de memória (OOM)
+        // quando a estação tem centenas de milhares de leituras registradas.
+        $agrupados = Leitura::whereBetween('registrado_em', [$inicio, $fim])
             ->whereNotNull($metrica)
             ->when($estacaoId, fn ($query) => $query->where('estacao_id', $estacaoId))
-            ->get(['estacao_id', $metrica, 'registrado_em']);
+            ->selectRaw("estacao_id, {$expressaoPeriodo} as chave_periodo, {$funcaoAgregacao} as valor")
+            ->groupBy('estacao_id', DB::raw($expressaoPeriodo))
+            ->get();
 
         $mediasIndexadas = [];
-        foreach ($leituras->groupBy(fn ($leitura) => $leitura->estacao_id . '_' . $leitura->registrado_em->format($formatoAgrupamento)) as $chaveComposta => $grupo) {
-            if ($metrica === 'vel_vento') {
-                $valor = $grupo->max($metrica);
-            } elseif ($metrica === 'chuva_mm') {
-                $valor = $grupo->sum($metrica);
-            } else {
-                $valor = $grupo->avg($metrica);
-            }
-            $mediasIndexadas[$chaveComposta] = round($valor, 2);
+        foreach ($agrupados as $item) {
+            $chave = $item->estacao_id . '_' . $item->chave_periodo;
+            $mediasIndexadas[$chave] = round((float) $item->valor, 2);
         }
 
         $serie = [];
@@ -180,11 +199,11 @@ class SerieMetricaService
             $resultado[$metrica] = [
                 'maximo' => $maximo ? [
                     'valor' => $maximo->{$metrica},
-                    'hora' => $maximo->registrado_em->format('H:i'),
+                    'hora' => $maximo->registrado_em ? $maximo->registrado_em->format('H:i') : null,
                 ] : null,
                 'minimo' => $minimo ? [
                     'valor' => $minimo->{$metrica},
-                    'hora' => $minimo->registrado_em->format('H:i'),
+                    'hora' => $minimo->registrado_em ? $minimo->registrado_em->format('H:i') : null,
                 ] : null,
             ];
         }
