@@ -21,11 +21,14 @@ class AlertaService
         foreach ($configs as $config) {
             $valor = $leitura->{$config->parametro} ?? null;
 
-            if ($valor === null) {
+            if ($valor === null || ! is_numeric($valor)) {
                 continue;
             }
 
-            if ($this->violaLimite($valor, $config->operador, $config->valor_limite)) {
+            $valorNumerico = (float) $valor;
+            $limiteNumerico = (float) $config->valor_limite;
+
+            if ($this->violaLimite($valorNumerico, $config->operador, $limiteNumerico)) {
                 $jaTinhaAlertaAtivo = AlertaDisparado::where('alerta_config_id', $config->id)
                     ->where('resolvido', false)
                     ->exists();
@@ -33,7 +36,7 @@ class AlertaService
                 $alertaDisparado = AlertaDisparado::create([
                     'alerta_config_id' => $config->id,
                     'leitura_id' => $leitura->id,
-                    'valor_lido' => $valor,
+                    'valor_lido' => $valorNumerico,
                 ]);
 
                 // Só notifica se este for o INÍCIO de um novo alerta
@@ -41,7 +44,7 @@ class AlertaService
                 if (! $jaTinhaAlertaAtivo) {
                     $this->notificarDisparo($alertaDisparado);
                 }
-            } elseif ($this->estaForaDaZonaDeHisterese($valor, $config->operador, $config->valor_limite)) {
+            } elseif ($this->estaForaDaZonaDeHisterese($valorNumerico, $config->operador, $limiteNumerico)) {
                 // Só resolve quando o valor sair de vez da "zona de margem"
                 // (histerese de 2 pontos) - evita disparar/resolver
                 // repetidamente quando o valor oscila bem perto do limite.

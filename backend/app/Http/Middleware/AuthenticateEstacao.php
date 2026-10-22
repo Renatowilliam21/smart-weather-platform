@@ -13,20 +13,26 @@ class AuthenticateEstacao
     {
         $token = $request->header('X-API-Token');
 
-        if (! $token) {
+        if (! is_string($token) || trim($token) === '') {
             return response()->json(['message' => 'Token não fornecido.'], 401);
         }
 
-        $estacao = Estacao::where('token_api', $token)
-            ->where('ativo', true)
-            ->first();
+        // Proteção contra Timing Attacks via comparação em tempo constante com hash_equals()
+        $estacaoAutenticada = null;
+        $estacoes = Estacao::where('ativo', true)->get();
 
-        if (! $estacao) {
+        foreach ($estacoes as $estacao) {
+            if (is_string($estacao->token_api) && hash_equals($estacao->token_api, $token)) {
+                $estacaoAutenticada = $estacao;
+            }
+        }
+
+        if (! $estacaoAutenticada) {
             return response()->json(['message' => 'Token inválido ou estação inativa.'], 401);
         }
 
         // Disponibiliza a estação autenticada para o controller
-        $request->attributes->set('estacao', $estacao);
+        $request->attributes->set('estacao', $estacaoAutenticada);
 
         return $next($request);
     }

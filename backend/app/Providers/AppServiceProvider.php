@@ -41,7 +41,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('leituras', function ($request) {
-            $chave = $request->header('X-API-Token') ?: $request->ip();
+            $chave = is_string($token = $request->header('X-API-Token')) && $token !== '' ? $token : $request->ip();
 
             return Limit::perMinute(30)->by($chave);
         });

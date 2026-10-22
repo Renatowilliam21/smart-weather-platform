@@ -14,6 +14,12 @@ class LeituraController extends Controller
 {
     public function index(Request $request): Response
     {
+        $request->validate([
+            'estacao_id' => 'nullable|integer',
+            'data_inicio' => 'nullable|date',
+            'data_fim' => 'nullable|date',
+        ]);
+
         $leituras = $this->leiturasFiltradas($request)
             ->paginate(25)
             ->withQueryString();
@@ -27,11 +33,18 @@ class LeituraController extends Controller
 
     public function export(Request $request): StreamedResponse
     {
-        $leituras = $this->leiturasFiltradas($request)->get();
+        $request->validate([
+            'estacao_id' => 'nullable|integer',
+            'data_inicio' => 'nullable|date',
+            'data_fim' => 'nullable|date',
+        ]);
 
+        // Mitigação CVE-2026-109618 (RCE via OOM):
+        // Usa lazy() com chunks de 500 para streaming com pegada constante de memória O(1)
+        $query = $this->leiturasFiltradas($request);
         $nomeArquivo = 'leituras_' . now()->format('Y-m-d_His') . '.csv';
 
-        $callback = function () use ($leituras) {
+        $callback = function () use ($query) {
             $handle = fopen('php://output', 'w');
 
             // BOM para o Excel reconhecer UTF-8 corretamente
@@ -66,7 +79,7 @@ class LeituraController extends Controller
                 'Tensão Bateria (V)',
             ], ';');
 
-            foreach ($leituras as $leitura) {
+            foreach ($query->lazy(500) as $leitura) {
                 fputcsv($handle, [
                     $leitura->estacao->nome ?? 'N/A',
                     $leitura->registrado_em?->format('d/m/Y H:i:s'),

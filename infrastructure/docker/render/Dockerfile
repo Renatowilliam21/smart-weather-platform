@@ -11,7 +11,7 @@ COPY backend/public ./public
 RUN npm run build
 
 # ===== Stage 2: imagem final (PHP-FPM + Nginx + Supervisor) =====
-FROM php:8.3-fpm
+FROM php:8.3.36-fpm
 
 RUN apt-get update && apt-get install -y \
     git curl unzip zip nano \
@@ -40,6 +40,8 @@ RUN mkdir -p storage/framework/cache/data storage/framework/sessions storage/fra
     && chown -R www-data:www-data /var/www \
     && chmod -R 775 storage bootstrap/cache
 
+COPY infrastructure/docker/php/security.ini /usr/local/etc/php/conf.d/security.ini
+COPY infrastructure/docker/php/www.conf /usr/local/etc/php-fpm.d/www.conf
 COPY infrastructure/docker/render/nginx.conf.template /etc/nginx/nginx.conf.template
 COPY infrastructure/docker/render/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY infrastructure/docker/render/entrypoint.sh /entrypoint.sh

@@ -20,6 +20,8 @@ services:
         condition: service_healthy   
 
 
+    mem_limit: 512m
+
     networks:
       - weather-network
 
@@ -33,6 +35,7 @@ services:
     depends_on:
       - app
     entrypoint: ["sh", "-c", "while true; do php artisan schedule:run; sleep 60; done"]
+    mem_limit: 256m
     networks:
       - weather-network
 

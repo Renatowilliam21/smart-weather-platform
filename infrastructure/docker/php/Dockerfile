@@ -1,4 +1,4 @@
-FROM php:8.3-fpm
+FROM php:8.3.36-fpm
 
 RUN apt-get update && apt-get install -y \
     git \
@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y libpq-dev \
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
+COPY infrastructure/docker/php/security.ini /usr/local/etc/php/conf.d/security.ini
 COPY infrastructure/docker/php/www.conf /usr/local/etc/php-fpm.d/www.conf
 
 WORKDIR /var/www
