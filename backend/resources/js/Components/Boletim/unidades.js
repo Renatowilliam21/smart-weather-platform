@@ -51,7 +51,7 @@ export const UNIDADES_METRICAS = {
     temp_globo_negro: { rotulo: 'Temp. Globo Negro', unidade: '°C', sufixo: ' °C', casasDecimais: 1 },
     umid_globo_negro: { rotulo: 'Umid. Globo Negro', unidade: '%', sufixo: '%', casasDecimais: 1 },
     indice_calor: { rotulo: 'Índice de Calor', unidade: '°C', sufixo: ' °C', casasDecimais: 1 },
-    luminosidade: { rotulo: 'Luminosidade', unidade: 'lx', sufixo: ' lx', casasDecimais: 0 },
+    luminosidade: { rotulo: 'Luminosidade', unidade: '%', sufixo: '%', casasDecimais: 1 },
     co2_ppm: { rotulo: 'CO₂', unidade: 'ppm', sufixo: ' ppm', casasDecimais: 0 },
     tvoc_ppb: { rotulo: 'TVOC', unidade: 'ppb', sufixo: ' ppb', casasDecimais: 0 },
     aqi: { rotulo: 'Qualidade do Ar', unidade: 'AQI', sufixo: ' AQI', casasDecimais: 0 },
