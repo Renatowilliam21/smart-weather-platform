@@ -304,7 +304,8 @@ const PainelComparacao = memo(function PainelComparacao({ comparacao }) {
 
 export default function Show({ estacao, periodo, dataReferencia, metrica, boletim }) {
     const [carregando, setCarregando] = useState(false);
-    const { rotulo: nomeMetrica, sufixo: unidade } = useUnidadeMetrica(metrica);
+    const metricaAtiva = metrica || boletim?.metrica || 'temperatura_ar';
+    const { rotulo: nomeMetrica, unidade } = useUnidadeMetrica(metricaAtiva);
 
     // Navegação que exige o servidor (período/data): partial reload + feedback visual imediato.
     const irPara = useCallback((params) => {
@@ -461,9 +462,10 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
                                 />
                                 <Suspense fallback={<EsqueletoGrafico />}>
                                     <GraficoBoletim
+                                        key={`${periodo}-${metricaAtiva}`}
                                         periodo={periodo}
                                         serie={serie}
-                                        metrica={metrica}
+                                        metrica={metricaAtiva}
                                         nomeSerie={nomeMetrica}
                                         unidade={unidade}
                                     />

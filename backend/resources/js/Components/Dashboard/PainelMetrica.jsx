@@ -2,10 +2,12 @@ import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { METRICAS } from '@/Components/Dashboard/SeletoresPeriodo';
+import { obterUnidade } from '@/Components/Boletim/unidades';
 
 export default function GraficoMetrica({ serieMetrica, estacoes, metricaSelecionada }) {
     const nomesPorId = Object.fromEntries(estacoes.map(e => [e.id, e.nome]));
     const infoMetrica = METRICAS[metricaSelecionada] ?? { rotulo: metricaSelecionada, unidade: '' };
+    const unidade = obterUnidade(metricaSelecionada) || infoMetrica.unidade?.trim() || '';
 
   const dadosPorRotulo = {};
     serieMetrica.forEach((ponto) => {
@@ -55,8 +57,8 @@ export default function GraficoMetrica({ serieMetrica, estacoes, metricaSelecion
                         <LineChart data={dados}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="horario" interval={dados.length > 15 ? 2 : 0} tick={{ fontSize: 11 }} />
-                            <YAxis domain={temDadosValidos ? ['auto', 'auto'] : [0, 100]} />
-                            {temDadosValidos && <Tooltip />}
+                            <YAxis domain={temDadosValidos ? ['auto', 'auto'] : [0, 100]} tickFormatter={(value) => `${value} ${unidade}`} width={60} />
+                            {temDadosValidos && <Tooltip formatter={(value, name) => [`${value} ${unidade}`, name]} />}
                             <Legend />
                             {nomesEstacoes.map((nome, i) => (
                                 <Line

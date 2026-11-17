@@ -1,16 +1,16 @@
 export const METRICAS = {
-    itgu: { rotulo: 'ITGU', unidade: '' },
-    itu: { rotulo: 'ITU', unidade: '' },
+    itgu: { rotulo: 'ITGU', unidade: '°C' },
+    itu: { rotulo: 'ITU', unidade: '°C' },
     temperatura_ar: { rotulo: 'Temperatura do Ar', unidade: '°C' },
     umidade_ar: { rotulo: 'Umidade do Ar', unidade: '%' },
     luminosidade: { rotulo: 'Luminosidade', unidade: '%' },
-    indice_uv: { rotulo: 'Índice UV', unidade: '' },
+    indice_uv: { rotulo: 'Índice UV', unidade: 'UV' },
     co2_ppm: { rotulo: 'CO2 equivalente', unidade: 'ppm' },
     tvoc_ppb: { rotulo: 'TVOC', unidade: 'ppb' },
     aqi: { rotulo: 'Índice de Qualidade do Ar', unidade: '(1-5)' },
     indice_calor: { rotulo: 'Índice de Calor (NOAA)', unidade: '°C' },
-    chuva_mm: { rotulo: 'Chuva', unidade: ' mm' },
-    vel_vento: { rotulo: 'Vel. Vento', unidade: ' km/h' },
+    chuva_mm: { rotulo: 'Chuva', unidade: 'mm' },
+    vel_vento: { rotulo: 'Vel. Vento', unidade: 'km/h' },
 };
 
 export function SeletorMetrica({ metricasDisponiveis, metricaSelecionada, onChange }) {
