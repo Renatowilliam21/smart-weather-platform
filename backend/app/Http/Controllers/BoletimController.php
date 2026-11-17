@@ -29,10 +29,12 @@ class BoletimController extends Controller
         $boletim = $this->servico->gerar($estacao->id, $periodo, $dataReferencia, $metrica);
 
         return Inertia::render('Boletim/Show', [
-            'estacao' => $estacao,
-            'periodo' => $periodo,
+            // Closure: só é serializada na visita inicial; nas navegações parciais
+            // (only: [...]) do front ela nem é avaliada. A tela usa apenas id e nome.
+            'estacao' => fn () => $estacao->only(['id', 'nome']),
+            'periodo' => $boletim['periodo'],
             'dataReferencia' => $dataReferencia->toDateString(),
-            'metrica' => $metrica,
+            'metrica' => $boletim['metrica'],
             'boletim' => $boletim,
         ]);
     }

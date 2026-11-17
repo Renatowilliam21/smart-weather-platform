@@ -4,7 +4,22 @@ namespace App\Services;
 
 use App\Models\Leitura;
 use Carbon\Carbon;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
+/**
+ * Gera o Boletim das Estações.
+ *
+ * Estratégia de performance:
+ *  - Toda agregação pesada é feita no banco (GROUP BY por hora/dia) e o PHP só
+ *    trabalha sobre o resumo (≤ 24 linhas no dia, ≤ 366 no ano).
+ *  - Consultas usam toBase() (stdClass) em vez de hidratar models Eloquent,
+ *    evitando casts decimal/Carbon por linha.
+ *  - O resultado é independente da métrica (as séries das 6 métricas vêm juntas),
+ *    então trocar de métrica na tela não recalcula nada.
+ *  - O resultado é cacheado com stale-while-revalidate (Cache::flexible).
+ */
 class BoletimService
 {
     private const PERIODOS_PERMITIDOS = ['dia', 'semana', 'mes', 'ano'];
@@ -13,6 +28,32 @@ class BoletimService
     private const NOMES_MESES_ABREV = [
         1 => 'Jan', 2 => 'Fev', 3 => 'Mar', 4 => 'Abr', 5 => 'Mai', 6 => 'Jun',
         7 => 'Jul', 8 => 'Ago', 9 => 'Set', 10 => 'Out', 11 => 'Nov', 12 => 'Dez',
+    ];
+
+    /** Incrementar sempre que a estrutura do array cacheado mudar. */
+    private const VERSAO_CACHE = 1;
+
+    /**
+     * [fresco, máximo] em segundos para o período em andamento. A estação envia
+     * leitura a cada ~60 s, então 1 min de frescor é o mesmo que "tempo real".
+     */
+    private const TTL_PERIODO_ABERTO = [60, 300];
+
+    /**
+     * Período encerrado: só muda se a estação reenviar backlog do buffer EEPROM,
+     * por isso pode ficar 6 h fresco e até 24 h servindo stale enquanto revalida.
+     */
+    private const TTL_PERIODO_FECHADO = [21600, 86400];
+
+    /** Critérios de recorde: chave => [coluna, procurarMaior?]. */
+    private const CRITERIOS_RECORDE = [
+        'temp_max' => ['temperatura_ar', true],
+        'temp_min' => ['temperatura_ar', false],
+        'umid_max' => ['umidade_ar', true],
+        'umid_min' => ['umidade_ar', false],
+        'uv_max' => ['indice_uv', true],
+        'pressao_min' => ['pressao', false],
+        'itgu_max' => ['itgu', true],
     ];
 
     public function gerar(int $estacaoId, string $periodo, Carbon $dataReferencia, string $metrica = 'temperatura_ar'): array
@@ -25,33 +66,472 @@ class BoletimService
         }
 
         [$inicio, $fim] = $this->intervaloDoPeriodo($periodo, $dataReferencia);
-        $ehPorHora = $periodo === 'dia';
 
-        $resultado = [
+        $chave = sprintf('boletim:v%d:%d:%s:%s', self::VERSAO_CACHE, $estacaoId, $periodo, $inicio->format('Ymd'));
+        $ttl = $fim->isPast() ? self::TTL_PERIODO_FECHADO : self::TTL_PERIODO_ABERTO;
+
+        $base = Cache::flexible(
+            $chave,
+            $ttl,
+            fn () => $this->calcular($estacaoId, $periodo, $dataReferencia->copy(), $inicio->copy(), $fim->copy())
+        );
+
+        return [
             'periodo' => $periodo,
             'metrica' => $metrica,
+            ...$base,
+            'serieChart' => $base['series'][$metrica],
+        ];
+    }
+
+    /**
+     * Calcula a parte do boletim que independe da métrica selecionada (é o que vai para o cache).
+     */
+    private function calcular(int $estacaoId, string $periodo, Carbon $dataReferencia, Carbon $inicio, Carbon $fim): array
+    {
+        $base = [
             'rotulo' => $this->rotuloPeriodo($periodo, $dataReferencia),
-            'granularidade' => $ehPorHora ? 'hora' : 'dia',
-            'recordes' => $ehPorHora
-                ? $this->recordesPorHora($estacaoId, $inicio, $fim)
-                : $this->recordesPorDia($estacaoId, $inicio, $fim),
-            'serieChart' => $ehPorHora
-                ? $this->seriePorHora($estacaoId, $metrica, $inicio, $fim)
-                : ($periodo === 'ano' ? $this->seriePorMes($estacaoId, $metrica, $inicio, $fim) : $this->seriePorDia($estacaoId, $metrica, $inicio, $fim)),
-            'comparacaoAnterior' => $this->compararComPeriodoAnterior($estacaoId, $periodo, $dataReferencia),
+            'granularidade' => $periodo === 'dia' ? 'hora' : 'dia',
         ];
 
-        if ($periodo === 'dia') {
-            $resultado['tabela'] = $this->tabelaPorHora($estacaoId, $inicio, $fim);
-        } elseif ($periodo === 'semana') {
-            $resultado['tabela'] = $this->tabelaPorDia($estacaoId, $inicio, $fim);
-        } elseif ($periodo === 'mes') {
-            $resultado['mapaCalor'] = $this->mapaCalorDoMes($estacaoId, $inicio, $fim);
-        } elseif ($periodo === 'ano') {
-            $resultado['tabela'] = $this->tabelaPorMes($estacaoId, $dataReferencia);
+        $corpo = $periodo === 'dia'
+            ? $this->calcularDia($estacaoId, $inicio, $fim)
+            : $this->calcularPorDias($estacaoId, $periodo, $inicio, $fim);
+
+        [$inicioAnterior, $fimAnterior] = $this->intervaloDoPeriodo($periodo, $this->dataPeriodoAnterior($periodo, $dataReferencia));
+        $anterior = $this->resumoPeriodo($estacaoId, $inicioAnterior, $fimAnterior);
+
+        $corpo['comparacaoAnterior'] = $this->compararComPeriodoAnterior($corpo['_resumoAtual'], $anterior);
+        unset($corpo['_resumoAtual']);
+
+        return $base + $corpo;
+    }
+
+    // ---------------------------------------------------------------------
+    // Período "dia" (granularidade horária) — 3 consultas no total
+    // ---------------------------------------------------------------------
+
+    private function calcularDia(int $estacaoId, Carbon $inicio, Carbon $fim): array
+    {
+        // Consulta 1: leituras do dia (~1.5k linhas) como stdClass, só com as colunas necessárias.
+        $leituras = $this->consultaPeriodo($estacaoId, $inicio, $fim)
+            ->orderBy('registrado_em')
+            ->get(array_merge(['registrado_em', 'itgu_classificacao'], self::METRICAS));
+
+        // Passada única O(n): soma/quantidade por hora e métrica + janela de alerta.
+        $horas = [];
+        $horasAlerta = [];
+        $primeiroAlerta = null;
+        $ultimoAlerta = null;
+
+        foreach ($leituras as $leitura) {
+            $hora = (int) substr($leitura->registrado_em, 11, 2);
+            $horas[$hora] ??= [];
+
+            foreach (self::METRICAS as $metrica) {
+                if ($leitura->$metrica === null) {
+                    continue;
+                }
+                $horas[$hora][$metrica][0] = ($horas[$hora][$metrica][0] ?? 0.0) + (float) $leitura->$metrica;
+                $horas[$hora][$metrica][1] = ($horas[$hora][$metrica][1] ?? 0) + 1;
+            }
+
+            if ($leitura->itgu_classificacao === 'perigo') {
+                $horasAlerta[$hora] = true;
+                $primeiroAlerta ??= $leitura;
+                $ultimoAlerta = $leitura;
+            }
+        }
+        ksort($horas);
+
+        $media = fn (int $hora, string $metrica, int $casas) => isset($horas[$hora][$metrica])
+            ? round($horas[$hora][$metrica][0] / $horas[$hora][$metrica][1], $casas)
+            : null;
+
+        // Consulta 2: média por hora dos 7 dias anteriores, já agregada no banco (24 linhas).
+        $media7dias = $this->mediaPorHora(
+            $estacaoId,
+            $inicio->copy()->subDays(7)->startOfDay(),
+            $inicio->copy()->subDay()->endOfDay()
+        );
+
+        $series = [];
+        foreach (self::METRICAS as $metrica) {
+            $serie = [];
+            for ($h = 0; $h < 24; $h++) {
+                $valorMedia = $media7dias->get($h)?->$metrica;
+                $serie[] = [
+                    'rotulo' => sprintf('%02d:00', $h),
+                    'valor' => $media($h, $metrica, 2),
+                    'media' => $valorMedia !== null ? round((float) $valorMedia, 2) : null,
+                ];
+            }
+            $series[$metrica] = $serie;
         }
 
+        $tabela = [];
+        foreach (array_keys($horas) as $h) {
+            $tabela[] = [
+                'rotulo' => sprintf('%02d:00', $h),
+                'temperatura_ar' => $media($h, 'temperatura_ar', 1),
+                'umidade_ar' => $media($h, 'umidade_ar', 1),
+                'itgu' => $media($h, 'itgu', 1),
+                'indice_uv' => $media($h, 'indice_uv', 1),
+            ];
+        }
+
+        $rec = $this->extremos($leituras, self::CRITERIOS_RECORDE);
+        $hm = fn (?object $l) => $l ? substr($l->registrado_em, 11, 5) : null;
+        $card = fn (string $titulo, string $chave, string $coluna, string $unidade, string $cor) => [
+            'titulo' => $titulo,
+            'valor' => $this->decimal($rec[$chave]?->$coluna),
+            'unidade' => $unidade,
+            'quando' => $hm($rec[$chave]),
+            'cor' => $cor,
+        ];
+
+        $cardItgu = $card('Maior ITGU', 'itgu_max', 'itgu', '', 'quente');
+        $cardItgu['extra'] = $rec['itgu_max']?->itgu_classificacao;
+
+        $umidSoma = 0.0;
+        $umidQtd = 0;
+        foreach ($horas as $metricas) {
+            $umidSoma += $metricas['umidade_ar'][0] ?? 0.0;
+            $umidQtd += $metricas['umidade_ar'][1] ?? 0;
+        }
+
+        return [
+            'recordes' => [
+                'cards' => [
+                    $card('Hora mais quente', 'temp_max', 'temperatura_ar', '°C', 'quente'),
+                    $card('Hora mais fria', 'temp_min', 'temperatura_ar', '°C', 'fria'),
+                    $card('Maior umidade', 'umid_max', 'umidade_ar', '%', 'umida'),
+                    $card('Menor umidade', 'umid_min', 'umidade_ar', '%', 'seca'),
+                    $card('Pico de UV', 'uv_max', 'indice_uv', '', 'uv'),
+                    $card('Menor pressão', 'pressao_min', 'pressao', ' hPa', 'pressao'),
+                    $cardItgu,
+                    [
+                        'titulo' => 'Horas em alerta térmico',
+                        'valor' => count($horasAlerta),
+                        'unidade' => 'h',
+                        'quando' => $primeiroAlerta ? $hm($primeiroAlerta) . '–' . $hm($ultimoAlerta) : null,
+                        'cor' => 'quente',
+                    ],
+                ],
+            ],
+            'series' => $series,
+            'tabela' => $tabela,
+            '_resumoAtual' => [
+                'temp_max' => $rec['temp_max'] ? (float) $rec['temp_max']->temperatura_ar : null,
+                'umid_media' => $umidQtd > 0 ? $umidSoma / $umidQtd : null,
+                'dias_alerta' => $primeiroAlerta ? 1 : 0,
+            ],
+        ];
+    }
+
+    // ---------------------------------------------------------------------
+    // Períodos "semana", "mes" e "ano" (granularidade diária) — 2 consultas no total
+    // ---------------------------------------------------------------------
+
+    private function calcularPorDias(int $estacaoId, string $periodo, Carbon $inicio, Carbon $fim): array
+    {
+        $dias = $this->agregadoPorDia($estacaoId, $inicio, $fim);
+        $porData = $dias->keyBy('dia');
+
+        $criterios = [];
+        foreach (self::CRITERIOS_RECORDE as $chave => [$coluna, $maior]) {
+            $criterios[$chave] = [$coluna . ($maior ? '_max' : '_min'), $maior];
+        }
+        $rec = $this->extremos($dias, $criterios);
+        $diasComAlerta = $dias->where('teve_alerta', true)->count();
+
+        $dm = fn (?object $r) => $r ? Carbon::parse($r->dia)->format('d/m') : null;
+        $card = fn (string $titulo, string $chave, string $unidade, string $cor) => [
+            'titulo' => $titulo,
+            'valor' => $this->decimal($rec[$chave]?->{$criterios[$chave][0]}),
+            'unidade' => $unidade,
+            'quando' => $dm($rec[$chave]),
+            'cor' => $cor,
+        ];
+
+        $resultado = [
+            'recordes' => [
+                'cards' => [
+                    $card('Dia mais quente', 'temp_max', '°C', 'quente'),
+                    $card('Dia mais frio', 'temp_min', '°C', 'fria'),
+                    $card('Maior umidade', 'umid_max', '%', 'umida'),
+                    $card('Menor umidade', 'umid_min', '%', 'seca'),
+                    $card('Pico de UV', 'uv_max', '', 'uv'),
+                    $card('Menor pressão', 'pressao_min', ' hPa', 'pressao'),
+                    $card('Maior ITGU', 'itgu_max', '', 'quente'),
+                    ['titulo' => 'Dias em alerta térmico', 'valor' => $diasComAlerta, 'unidade' => ' de ' . $dias->count(), 'quando' => null, 'cor' => 'quente'],
+                ],
+            ],
+            'series' => $periodo === 'ano'
+                ? $this->seriesPorMes($dias)
+                : $this->seriesPorDia($porData, $inicio, $fim),
+        ];
+
+        if ($periodo === 'semana') {
+            $resultado['tabela'] = $dias->map(fn ($d) => [
+                'rotulo' => Carbon::parse($d->dia)->translatedFormat('D d/m'),
+                'maximo' => $this->arredondar($d->temperatura_ar_max, 1),
+                'minimo' => $this->arredondar($d->temperatura_ar_min, 1),
+                'umid_media' => $d->umidade_ar_qtd > 0 ? round($d->umidade_ar_soma / $d->umidade_ar_qtd, 1) : null,
+                'teve_alerta' => $d->teve_alerta,
+            ])->values()->all();
+        } elseif ($periodo === 'mes') {
+            $resultado['mapaCalor'] = $this->mapaCalorDoMes($porData, $inicio, $fim);
+        } else {
+            $resultado['tabela'] = $this->tabelaPorMes($dias);
+        }
+
+        $temps = $dias->pluck('temperatura_ar_max')->filter(fn ($v) => $v !== null);
+        $umidQtd = $dias->sum('umidade_ar_qtd');
+        $resultado['_resumoAtual'] = [
+            'temp_max' => $temps->isNotEmpty() ? (float) $temps->max() : null,
+            'umid_media' => $umidQtd > 0 ? $dias->sum('umidade_ar_soma') / $umidQtd : null,
+            'dias_alerta' => $diasComAlerta,
+        ];
+
         return $resultado;
+    }
+
+    /**
+     * Uma única consulta GROUP BY dia com MAX/MIN/SUM/COUNT de todas as métricas.
+     * Tudo (recordes, séries, tabelas, mapa de calor, comparação) é derivado daqui.
+     */
+    private function agregadoPorDia(int $estacaoId, Carbon $inicio, Carbon $fim): Collection
+    {
+        $colunas = ['DATE(registrado_em) as dia'];
+        foreach (self::METRICAS as $m) {
+            $colunas[] = "MAX($m) as {$m}_max, MIN($m) as {$m}_min, SUM($m) as {$m}_soma, COUNT($m) as {$m}_qtd";
+        }
+        $colunas[] = "MAX(CASE WHEN itgu_classificacao = 'perigo' THEN 1 ELSE 0 END) as teve_alerta";
+
+        return $this->consultaPeriodo($estacaoId, $inicio, $fim)
+            ->selectRaw(implode(', ', $colunas))
+            ->groupByRaw('DATE(registrado_em)')
+            ->orderBy('dia')
+            ->get()
+            ->map(function ($d) {
+                // Normaliza tipos que variam entre MySQL / PostgreSQL / SQLite.
+                $d->dia = substr((string) $d->dia, 0, 10);
+                $d->teve_alerta = (bool) $d->teve_alerta;
+                foreach (self::METRICAS as $m) {
+                    $d->{"{$m}_soma"} = (float) $d->{"{$m}_soma"};
+                    $d->{"{$m}_qtd"} = (int) $d->{"{$m}_qtd"};
+                }
+
+                return $d;
+            });
+    }
+
+    private function seriesPorDia(Collection $porData, Carbon $inicio, Carbon $fim): array
+    {
+        $series = [];
+        foreach (self::METRICAS as $metrica) {
+            $coluna = "{$metrica}_max";
+            $maximos = $porData->pluck($coluna)->filter(fn ($v) => $v !== null);
+            $mediaGeral = $maximos->isNotEmpty() ? round($maximos->avg(), 2) : null;
+
+            $serie = [];
+            $cursor = $inicio->copy()->startOfDay();
+            while ($cursor->lte($fim)) {
+                $valor = $porData->get($cursor->format('Y-m-d'))?->$coluna;
+                $serie[] = [
+                    'rotulo' => $cursor->format('d/m'),
+                    'valor' => $this->arredondar($valor, 2),
+                    'media' => $mediaGeral,
+                ];
+                $cursor->addDay();
+            }
+            $series[$metrica] = $serie;
+        }
+
+        return $series;
+    }
+
+    private function seriesPorMes(Collection $dias): array
+    {
+        $porMes = $dias->groupBy(fn ($d) => (int) substr($d->dia, 5, 2));
+
+        $series = [];
+        foreach (self::METRICAS as $metrica) {
+            $serie = [];
+            for ($m = 1; $m <= 12; $m++) {
+                $grupo = $porMes->get($m);
+                $qtd = $grupo?->sum("{$metrica}_qtd") ?? 0;
+                $serie[] = [
+                    'rotulo' => self::NOMES_MESES_ABREV[$m],
+                    'valor' => $qtd > 0 ? round($grupo->sum("{$metrica}_soma") / $qtd, 2) : null,
+                ];
+            }
+            $series[$metrica] = $serie;
+        }
+
+        return $series;
+    }
+
+    private function tabelaPorMes(Collection $dias): array
+    {
+        $linhas = [];
+        foreach ($dias->groupBy(fn ($d) => (int) substr($d->dia, 5, 2))->sortKeys() as $mes => $grupo) {
+            $maximos = $grupo->pluck('temperatura_ar_max')->filter(fn ($v) => $v !== null);
+            $minimos = $grupo->pluck('temperatura_ar_min')->filter(fn ($v) => $v !== null);
+            $umidQtd = $grupo->sum('umidade_ar_qtd');
+
+            $linhas[] = [
+                'rotulo' => self::NOMES_MESES_ABREV[$mes],
+                'maximo' => $maximos->isNotEmpty() ? round((float) $maximos->max(), 1) : null,
+                'minimo' => $minimos->isNotEmpty() ? round((float) $minimos->min(), 1) : null,
+                'umid_media' => $umidQtd > 0 ? round($grupo->sum('umidade_ar_soma') / $umidQtd, 1) : null,
+                'dias_alerta' => $grupo->where('teve_alerta', true)->count(),
+            ];
+        }
+
+        return $linhas;
+    }
+
+    private function mapaCalorDoMes(Collection $porData, Carbon $inicio, Carbon $fim): array
+    {
+        $celulas = [];
+        for ($d = 1; $d <= $fim->day; $d++) {
+            $chave = sprintf('%s-%02d', $inicio->format('Y-m'), $d);
+            $celulas[] = [
+                'dia' => $d,
+                'valor' => $this->arredondar($porData->get($chave)?->temperatura_ar_max, 1),
+            ];
+        }
+
+        $valores = collect($celulas)->pluck('valor')->filter(fn ($v) => $v !== null);
+
+        return [
+            'celulas' => $celulas,
+            'minimo' => $valores->min(),
+            'maximo' => $valores->max(),
+        ];
+    }
+
+    // ---------------------------------------------------------------------
+    // Comparação com o período anterior
+    // ---------------------------------------------------------------------
+
+    /**
+     * Uma consulta agregada (antes eram 3 por período, 6 no total).
+     */
+    private function resumoPeriodo(int $estacaoId, Carbon $inicio, Carbon $fim): array
+    {
+        $r = $this->consultaPeriodo($estacaoId, $inicio, $fim)
+            ->selectRaw(
+                'MAX(temperatura_ar) as temp_max, AVG(umidade_ar) as umid_media, ' .
+                "COUNT(DISTINCT CASE WHEN itgu_classificacao = 'perigo' THEN DATE(registrado_em) END) as dias_alerta"
+            )
+            ->first();
+
+        return [
+            'temp_max' => isset($r->temp_max) ? (float) $r->temp_max : null,
+            'umid_media' => isset($r->umid_media) ? (float) $r->umid_media : null,
+            'dias_alerta' => (int) ($r->dias_alerta ?? 0),
+        ];
+    }
+
+    private function compararComPeriodoAnterior(array $atual, array $anterior): array
+    {
+        $delta = fn ($a, $b) => ($a !== null && $b !== null) ? round($a - $b, 1) : null;
+
+        return [
+            'temp_max' => $delta($atual['temp_max'], $anterior['temp_max']),
+            'umid_media' => $delta($atual['umid_media'], $anterior['umid_media']),
+            'dias_alerta' => $delta($atual['dias_alerta'], $anterior['dias_alerta']),
+        ];
+    }
+
+    private function dataPeriodoAnterior(string $periodo, Carbon $dataReferencia): Carbon
+    {
+        return match ($periodo) {
+            'semana' => $dataReferencia->copy()->subWeek(),
+            'mes' => $dataReferencia->copy()->subMonthNoOverflow(),
+            'ano' => $dataReferencia->copy()->subYear(),
+            default => $dataReferencia->copy()->subDay(),
+        };
+    }
+
+    // ---------------------------------------------------------------------
+    // Utilitários
+    // ---------------------------------------------------------------------
+
+    /**
+     * Query Builder "cru" (sem hidratação Eloquent) já filtrado pelo índice
+     * composto (estacao_id, registrado_em). Sempre usar intervalo (sargable),
+     * nunca whereYear()/whereDate(), que impedem o uso do índice.
+     */
+    private function consultaPeriodo(int $estacaoId, Carbon $inicio, Carbon $fim): Builder
+    {
+        return Leitura::query()->toBase()
+            ->where('estacao_id', $estacaoId)
+            ->whereBetween('registrado_em', [$inicio, $fim]);
+    }
+
+    /** Média de todas as métricas por hora do dia, agregada no banco. */
+    private function mediaPorHora(int $estacaoId, Carbon $inicio, Carbon $fim): Collection
+    {
+        $hora = $this->expressaoHora();
+
+        return $this->consultaPeriodo($estacaoId, $inicio, $fim)
+            ->selectRaw("$hora as hora, " . implode(', ', array_map(fn ($m) => "AVG($m) as $m", self::METRICAS)))
+            ->groupByRaw($hora)
+            ->get()
+            ->keyBy(fn ($r) => (int) $r->hora);
+    }
+
+    private function expressaoHora(): string
+    {
+        return match (Leitura::query()->getConnection()->getDriverName()) {
+            'sqlite' => "CAST(strftime('%H', registrado_em) AS INTEGER)",
+            'pgsql' => 'EXTRACT(HOUR FROM registrado_em)',
+            default => 'HOUR(registrado_em)',
+        };
+    }
+
+    /**
+     * Varre as linhas uma única vez (O(n)) e devolve, por critério, a primeira
+     * linha com o valor extremo. Substitui os 7 sortBy() (O(7·n log n)) anteriores.
+     *
+     * @param  iterable<object>  $linhas
+     * @param  array<string, array{0: string, 1: bool}>  $criterios
+     * @return array<string, object|null>
+     */
+    private function extremos(iterable $linhas, array $criterios): array
+    {
+        $melhor = array_fill_keys(array_keys($criterios), null);
+        $valor = [];
+
+        foreach ($linhas as $linha) {
+            foreach ($criterios as $chave => [$coluna, $maior]) {
+                if ($linha->$coluna === null) {
+                    continue;
+                }
+                $v = (float) $linha->$coluna;
+                if ($melhor[$chave] === null || ($maior ? $v > $valor[$chave] : $v < $valor[$chave])) {
+                    $melhor[$chave] = $linha;
+                    $valor[$chave] = $v;
+                }
+            }
+        }
+
+        return $melhor;
+    }
+
+    /** Mantém o formato "31.20" que o cast decimal:2 do model entregava ao front. */
+    private function decimal(mixed $valor): ?string
+    {
+        return $valor === null ? null : number_format((float) $valor, 2, '.', '');
+    }
+
+    private function arredondar(mixed $valor, int $casas): ?float
+    {
+        return $valor === null ? null : round((float) $valor, $casas);
     }
 
     private function intervaloDoPeriodo(string $periodo, Carbon $dataReferencia): array
@@ -72,300 +552,5 @@ class BoletimService
             'ano' => $data->format('Y'),
             default => $data->translatedFormat('d \d\e F \d\e Y'),
         };
-    }
-
-    private function recordesPorHora(int $estacaoId, Carbon $inicio, Carbon $fim): array
-    {
-        $leituras = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->get(array_merge(['registrado_em', 'itgu_classificacao'], self::METRICAS));
-
-        $extremo = fn ($metrica, $maior) => $leituras->whereNotNull($metrica)
-            ->sortBy([[$metrica, $maior ? 'desc' : 'asc']])->first();
-
-        $tempMax = $extremo('temperatura_ar', true);
-        $tempMin = $extremo('temperatura_ar', false);
-        $umidMax = $extremo('umidade_ar', true);
-        $umidMin = $extremo('umidade_ar', false);
-        $uvMax = $extremo('indice_uv', true);
-        $pressaoMin = $extremo('pressao', false);
-        $itguMax = $extremo('itgu', true);
-
-        $comAlerta = $leituras->where('itgu_classificacao', 'perigo');
-        $horasDistintas = $comAlerta->map(fn ($l) => $l->registrado_em->format('H'))->unique();
-        $faixaAlerta = null;
-        if ($comAlerta->isNotEmpty()) {
-            $ordenado = $comAlerta->sortBy('registrado_em');
-            $faixaAlerta = $ordenado->first()->registrado_em->format('H:i') . '–' . $ordenado->last()->registrado_em->format('H:i');
-        }
-
-        return [
-            'cards' => [
-                ['titulo' => 'Hora mais quente', 'valor' => $tempMax?->temperatura_ar, 'unidade' => '°C', 'quando' => $tempMax?->registrado_em?->format('H:i'), 'cor' => 'quente'],
-                ['titulo' => 'Hora mais fria', 'valor' => $tempMin?->temperatura_ar, 'unidade' => '°C', 'quando' => $tempMin?->registrado_em?->format('H:i'), 'cor' => 'fria'],
-                ['titulo' => 'Maior umidade', 'valor' => $umidMax?->umidade_ar, 'unidade' => '%', 'quando' => $umidMax?->registrado_em?->format('H:i'), 'cor' => 'umida'],
-                ['titulo' => 'Menor umidade', 'valor' => $umidMin?->umidade_ar, 'unidade' => '%', 'quando' => $umidMin?->registrado_em?->format('H:i'), 'cor' => 'seca'],
-                ['titulo' => 'Pico de UV', 'valor' => $uvMax?->indice_uv, 'unidade' => '', 'quando' => $uvMax?->registrado_em?->format('H:i'), 'cor' => 'uv'],
-                ['titulo' => 'Menor pressão', 'valor' => $pressaoMin?->pressao, 'unidade' => ' hPa', 'quando' => $pressaoMin?->registrado_em?->format('H:i'), 'cor' => 'pressao'],
-                ['titulo' => 'Maior ITGU', 'valor' => $itguMax?->itgu, 'unidade' => '', 'quando' => $itguMax?->registrado_em?->format('H:i'), 'extra' => $itguMax?->itgu_classificacao, 'cor' => 'quente'],
-                ['titulo' => 'Horas em alerta térmico', 'valor' => $horasDistintas->count(), 'unidade' => 'h', 'quando' => $faixaAlerta, 'cor' => 'quente'],
-            ],
-        ];
-    }
-
-    private function recordesPorDia(int $estacaoId, Carbon $inicio, Carbon $fim): array
-    {
-        $porDia = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->selectRaw(
-                'DATE(registrado_em) as dia, ' .
-                implode(', ', array_map(fn ($m) => "MAX($m) as {$m}_max, MIN($m) as {$m}_min, AVG($m) as {$m}_avg", self::METRICAS))
-            )
-            ->groupBy('dia')
-            ->get();
-
-        $extremo = fn ($campo, $maior) => $porDia->whereNotNull($campo)
-            ->sortBy([[$campo, $maior ? 'desc' : 'asc']])->first();
-
-        $tempMax = $extremo('temperatura_ar_max', true);
-        $tempMin = $extremo('temperatura_ar_min', false);
-        $umidMax = $extremo('umidade_ar_max', true);
-        $umidMin = $extremo('umidade_ar_min', false);
-        $uvMax = $extremo('indice_uv_max', true);
-        $pressaoMin = $extremo('pressao_min', false);
-        $itguMax = $extremo('itgu_max', true);
-
-        $diasComAlerta = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->where('itgu_classificacao', 'perigo')
-            ->selectRaw('COUNT(DISTINCT DATE(registrado_em)) as total')
-            ->value('total');
-
-        $fmt = fn ($r) => $r ? Carbon::parse($r->dia)->format('d/m') : null;
-
-        return [
-            'cards' => [
-                ['titulo' => 'Dia mais quente', 'valor' => $tempMax?->temperatura_ar_max, 'unidade' => '°C', 'quando' => $fmt($tempMax), 'cor' => 'quente'],
-                ['titulo' => 'Dia mais frio', 'valor' => $tempMin?->temperatura_ar_min, 'unidade' => '°C', 'quando' => $fmt($tempMin), 'cor' => 'fria'],
-                ['titulo' => 'Maior umidade', 'valor' => $umidMax?->umidade_ar_max, 'unidade' => '%', 'quando' => $fmt($umidMax), 'cor' => 'umida'],
-                ['titulo' => 'Menor umidade', 'valor' => $umidMin?->umidade_ar_min, 'unidade' => '%', 'quando' => $fmt($umidMin), 'cor' => 'seca'],
-                ['titulo' => 'Pico de UV', 'valor' => $uvMax?->indice_uv_max, 'unidade' => '', 'quando' => $fmt($uvMax), 'cor' => 'uv'],
-                ['titulo' => 'Menor pressão', 'valor' => $pressaoMin?->pressao_min, 'unidade' => ' hPa', 'quando' => $fmt($pressaoMin), 'cor' => 'pressao'],
-                ['titulo' => 'Maior ITGU', 'valor' => $itguMax?->itgu_max, 'unidade' => '', 'quando' => $fmt($itguMax), 'cor' => 'quente'],
-                ['titulo' => 'Dias em alerta térmico', 'valor' => $diasComAlerta, 'unidade' => ' de ' . $porDia->count(), 'quando' => null, 'cor' => 'quente'],
-            ],
-        ];
-    }
-
-    private function seriePorHora(int $estacaoId, string $metrica, Carbon $inicio, Carbon $fim): array
-    {
-        $leituras = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->whereNotNull($metrica)
-            ->get(['registrado_em', $metrica]);
-
-        $porHora = $leituras->groupBy(fn ($l) => $l->registrado_em->format('H'));
-
-        $inicio7dias = $inicio->copy()->subDays(7)->startOfDay();
-        $fim7dias = $inicio->copy()->subDay()->endOfDay();
-        $leituras7dias = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio7dias, $fim7dias])
-            ->whereNotNull($metrica)
-            ->get(['registrado_em', $metrica]);
-        $mediaPorHora = $leituras7dias->groupBy(fn ($l) => $l->registrado_em->format('H'));
-
-        $serie = [];
-        for ($h = 0; $h < 24; $h++) {
-            $chave = sprintf('%02d', $h);
-            $grupo = $porHora->get($chave);
-            $grupoMedia = $mediaPorHora->get($chave);
-            $serie[] = [
-                'rotulo' => $chave . ':00',
-                'valor' => $grupo ? round($grupo->avg($metrica), 2) : null,
-                'media' => $grupoMedia ? round($grupoMedia->avg($metrica), 2) : null,
-            ];
-        }
-
-        return $serie;
-    }
-
-    private function seriePorDia(int $estacaoId, string $metrica, Carbon $inicio, Carbon $fim): array
-    {
-        $porDia = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->whereNotNull($metrica)
-            ->selectRaw("DATE(registrado_em) as dia, MAX($metrica) as maximo")
-            ->groupBy('dia')
-            ->orderBy('dia')
-            ->get()
-            ->keyBy(fn ($r) => Carbon::parse($r->dia)->format('Y-m-d'));
-
-        $mediaGeral = $porDia->avg('maximo');
-
-        $serie = [];
-        $cursor = $inicio->copy()->startOfDay();
-        while ($cursor->lte($fim)) {
-            $chave = $cursor->format('Y-m-d');
-            $registro = $porDia->get($chave);
-            $serie[] = [
-                'rotulo' => $cursor->format('d/m'),
-                'valor' => $registro ? round($registro->maximo, 2) : null,
-                'media' => $mediaGeral ? round($mediaGeral, 2) : null,
-            ];
-            $cursor->addDay();
-        }
-
-        return $serie;
-    }
-
-    private function seriePorMes(int $estacaoId, string $metrica, Carbon $inicio, Carbon $fim): array
-    {
-        $porMes = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->whereNotNull($metrica)
-            ->selectRaw("EXTRACT(MONTH FROM registrado_em) as mes, AVG($metrica) as media")
-            ->groupBy('mes')
-            ->get()
-            ->keyBy('mes');
-
-        $serie = [];
-        for ($m = 1; $m <= 12; $m++) {
-            $registro = $porMes->get($m);
-            $serie[] = [
-                'rotulo' => self::NOMES_MESES_ABREV[$m],
-                'valor' => $registro ? round($registro->media, 2) : null,
-            ];
-        }
-
-        return $serie;
-    }
-
-    private function tabelaPorHora(int $estacaoId, Carbon $inicio, Carbon $fim): array
-    {
-        $leituras = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->get(['registrado_em', 'temperatura_ar', 'umidade_ar', 'itgu', 'indice_uv']);
-
-        $porHora = $leituras->groupBy(fn ($l) => $l->registrado_em->format('H'));
-
-        $linhas = [];
-        foreach ($porHora->sortKeys() as $hora => $grupo) {
-            $linhas[] = [
-                'rotulo' => $hora . ':00',
-                'temperatura_ar' => round($grupo->avg('temperatura_ar'), 1),
-                'umidade_ar' => round($grupo->avg('umidade_ar'), 1),
-                'itgu' => round($grupo->avg('itgu'), 1),
-                'indice_uv' => round($grupo->avg('indice_uv'), 1),
-            ];
-        }
-
-        return $linhas;
-    }
-
-    private function tabelaPorDia(int $estacaoId, Carbon $inicio, Carbon $fim): array
-    {
-        $porDia = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->selectRaw('DATE(registrado_em) as dia, MAX(temperatura_ar) as maximo, MIN(temperatura_ar) as minimo, AVG(umidade_ar) as umid_media, MAX(CASE WHEN itgu_classificacao = \'perigo\' THEN 1 ELSE 0 END) as teve_alerta')
-            ->groupBy('dia')
-            ->orderBy('dia')
-            ->get();
-
-        return $porDia->map(fn ($r) => [
-            'rotulo' => Carbon::parse($r->dia)->translatedFormat('D d/m'),
-            'maximo' => round($r->maximo, 1),
-            'minimo' => round($r->minimo, 1),
-            'umid_media' => round($r->umid_media, 1),
-            'teve_alerta' => (bool) $r->teve_alerta,
-        ])->values()->toArray();
-    }
-
-    private function tabelaPorMes(int $estacaoId, Carbon $dataReferencia): array
-    {
-        $ano = $dataReferencia->year;
-
-        $porMes = Leitura::where('estacao_id', $estacaoId)
-            ->whereYear('registrado_em', $ano)
-            ->selectRaw('EXTRACT(MONTH FROM registrado_em) as mes, MAX(temperatura_ar) as maximo, MIN(temperatura_ar) as minimo, AVG(umidade_ar) as umid_media, COUNT(DISTINCT CASE WHEN itgu_classificacao = \'perigo\' THEN DATE(registrado_em) END) as dias_alerta')
-            ->groupBy('mes')
-            ->get()
-            ->keyBy('mes');
-
-        $linhas = [];
-        for ($m = 1; $m <= 12; $m++) {
-            $r = $porMes->get($m);
-            if (! $r) continue;
-            $linhas[] = [
-                'rotulo' => self::NOMES_MESES_ABREV[$m],
-                'maximo' => round($r->maximo, 1),
-                'minimo' => round($r->minimo, 1),
-                'umid_media' => round($r->umid_media, 1),
-                'dias_alerta' => (int) $r->dias_alerta,
-            ];
-        }
-
-        return $linhas;
-    }
-
-    private function mapaCalorDoMes(int $estacaoId, Carbon $inicio, Carbon $fim): array
-    {
-        $porDia = Leitura::where('estacao_id', $estacaoId)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->whereNotNull('temperatura_ar')
-            ->selectRaw('EXTRACT(DAY FROM registrado_em) as dia, MAX(temperatura_ar) as maximo')
-            ->groupBy('dia')
-            ->get()
-            ->keyBy('dia');
-
-        $celulas = [];
-        for ($d = 1; $d <= $fim->day; $d++) {
-            $r = $porDia->get($d);
-            $celulas[] = [
-                'dia' => $d,
-                'valor' => $r ? round($r->maximo, 1) : null,
-            ];
-        }
-
-        $valores = collect($celulas)->pluck('valor')->filter();
-
-        return [
-            'celulas' => $celulas,
-            'minimo' => $valores->min(),
-            'maximo' => $valores->max(),
-        ];
-    }
-
-    private function compararComPeriodoAnterior(int $estacaoId, string $periodo, Carbon $dataReferencia): array
-    {
-        [$inicioAtual, $fimAtual] = $this->intervaloDoPeriodo($periodo, $dataReferencia);
-
-        $dataAnterior = match ($periodo) {
-            'semana' => $dataReferencia->copy()->subWeek(),
-            'mes' => $dataReferencia->copy()->subMonthNoOverflow(),
-            'ano' => $dataReferencia->copy()->subYear(),
-            default => $dataReferencia->copy()->subDay(),
-        };
-        [$inicioAnterior, $fimAnterior] = $this->intervaloDoPeriodo($periodo, $dataAnterior);
-
-        $resumo = function (Carbon $inicio, Carbon $fim) use ($estacaoId) {
-            $q = Leitura::where('estacao_id', $estacaoId)->whereBetween('registrado_em', [$inicio, $fim]);
-            return [
-                'temp_max' => (clone $q)->max('temperatura_ar'),
-                'umid_media' => (clone $q)->avg('umidade_ar'),
-                'dias_alerta' => (clone $q)->where('itgu_classificacao', 'perigo')
-                    ->selectRaw('COUNT(DISTINCT DATE(registrado_em)) as total')->value('total'),
-            ];
-        };
-
-        $atual = $resumo($inicioAtual, $fimAtual);
-        $anterior = $resumo($inicioAnterior, $fimAnterior);
-
-        $delta = fn ($a, $b) => ($a !== null && $b !== null) ? round($a - $b, 1) : null;
-
-        return [
-            'temp_max' => $delta($atual['temp_max'], $anterior['temp_max']),
-            'umid_media' => $delta($atual['umid_media'], $anterior['umid_media']),
-            'dias_alerta' => $delta($atual['dias_alerta'], $anterior['dias_alerta']),
-        ];
     }
 }
