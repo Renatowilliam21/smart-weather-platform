@@ -1,4 +1,10 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import {
+    formatarNumero,
+    formatarValorMetrica,
+    UNIDADES_METRICAS,
+    useUnidadeMetrica,
+} from '@/Components/Boletim/unidades';
 import { Head, Link, router } from '@inertiajs/react';
 import { lazy, memo, Suspense, useCallback, useMemo, useState } from 'react';
 
@@ -22,13 +28,17 @@ const METRICAS_SELETOR = [
     { valor: 'itu', rotulo: 'ITU' },
 ];
 
-const METRICAS_ROTULOS = {
-    temperatura_ar: { rotulo: 'Temperatura', unidade: '°C' },
-    umidade_ar: { rotulo: 'Umidade', unidade: '%' },
-    itgu: { rotulo: 'ITGU', unidade: '' },
-    itu: { rotulo: 'ITU', unidade: '' },
-    indice_uv: { rotulo: 'Índice UV', unidade: '' },
-    pressao: { rotulo: 'Pressão', unidade: ' hPa' },
+/** Mapeia o título dos cards de recorde para a respectiva chave no dicionário de unidades. */
+const METRICA_POR_TITULO_CARD = {
+    'Hora mais quente': 'temperatura_ar',
+    'Dia mais quente': 'temperatura_ar',
+    'Hora mais fria': 'temperatura_ar',
+    'Dia mais frio': 'temperatura_ar',
+    'Maior umidade': 'umidade_ar',
+    'Menor umidade': 'umidade_ar',
+    'Pico de UV': 'indice_uv',
+    'Menor pressão': 'pressao',
+    'Maior ITGU': 'itgu',
 };
 
 const CORES_CARD = {
@@ -55,10 +65,27 @@ const AZUL = [62, 143, 209];
 const AREIA = [234, 217, 160];
 const LARANJA = [199, 98, 45];
 
-const fmt = (valor, sufixo = '') => (valor === null || valor === undefined ? '—' : `${valor}${sufixo}`);
-
 const formatarDataLocal = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function formatarValorCard(card) {
+    if (card.titulo === 'Dias em alerta térmico') {
+        const valor = formatarNumero(card.valor, 0);
+        const sufixoTotal = card.unidade ?? '';
+        return `${valor}${sufixoTotal}${sufixoTotal.endsWith('dias') ? '' : ' dias'}`;
+    }
+
+    if (card.titulo === 'Horas em alerta térmico') {
+        return `${formatarNumero(card.valor, 0)}h`;
+    }
+
+    const chaveMetrica = card.metrica ?? METRICA_POR_TITULO_CARD[card.titulo];
+    if (chaveMetrica) {
+        return formatarValorMetrica(card.valor, chaveMetrica, 1);
+    }
+
+    return formatarValorMetrica(card.valor, card.unidade ?? '', 1);
+}
 
 const CardRecorde = memo(function CardRecorde({ card }) {
     if (card.valor === null || card.valor === undefined) return null;
@@ -67,7 +94,7 @@ const CardRecorde = memo(function CardRecorde({ card }) {
     return (
         <div className={`bg-white overflow-hidden shadow-sm sm:rounded-lg border-l-4 ${borda} p-4`}>
             <p className="text-xs text-gray-500 mb-1">{card.titulo}</p>
-            <p className="text-2xl font-bold text-gray-800">{card.valor}{card.unidade}</p>
+            <p className="text-2xl font-bold text-gray-800">{formatarValorCard(card)}</p>
             {card.quando && (
                 <p className="text-xs text-gray-500 mt-1">
                     {card.quando.includes(':') && !card.quando.includes('–') ? `às ${card.quando}` : card.quando}
@@ -78,17 +105,30 @@ const CardRecorde = memo(function CardRecorde({ card }) {
     );
 });
 
-const InfoGrafico = memo(function InfoGrafico({ titulo, subtitulo, serie, unidade = '' }) {
-    const picoVale = useMemo(() => {
+const InfoGrafico = memo(function InfoGrafico({ titulo, subtitulo, serie, metrica, unidade = '' }) {
+    const chaveUnidade = UNIDADES_METRICAS[metrica] ? metrica : unidade;
+
+    const resumo = useMemo(() => {
         const validos = serie.filter((p) => p.valor !== null && p.valor !== undefined);
         if (validos.length === 0) return null;
+
         let pico = validos[0];
         let vale = validos[0];
+        let soma = 0;
+
         for (const p of validos) {
-            if (p.valor > pico.valor) pico = p;
-            if (p.valor < vale.valor) vale = p;
+            const v = Number(p.valor);
+            if (v > Number(pico.valor)) pico = p;
+            if (v < Number(vale.valor)) vale = p;
+            soma += v;
         }
-        return { pico, vale };
+
+        const comMedia = serie.filter((p) => p.media !== null && p.media !== undefined);
+        const mediaReferencia = comMedia.length > 0
+            ? comMedia.reduce((acc, p) => acc + Number(p.media), 0) / comMedia.length
+            : soma / validos.length;
+
+        return { pico, vale, media: mediaReferencia };
     }, [serie]);
 
     return (
@@ -97,10 +137,17 @@ const InfoGrafico = memo(function InfoGrafico({ titulo, subtitulo, serie, unidad
                 <p className="text-sm font-semibold text-gray-800">{titulo}</p>
                 {subtitulo && <p className="text-xs text-gray-500 mt-0.5">{subtitulo}</p>}
             </div>
-            {picoVale && (
-                <div className="flex gap-3 text-xs">
-                    <span className="text-red-600 font-medium">▲ pico {picoVale.pico.rotulo} · {picoVale.pico.valor}{unidade}</span>
-                    <span className="text-blue-600 font-medium">▼ mínima {picoVale.vale.rotulo} · {picoVale.vale.valor}{unidade}</span>
+            {resumo && (
+                <div className="flex flex-wrap gap-3 text-xs">
+                    <span className="text-red-600 font-medium">
+                        ▲ pico {resumo.pico.rotulo} · {formatarValorMetrica(resumo.pico.valor, chaveUnidade, 1)}
+                    </span>
+                    <span className="text-blue-600 font-medium">
+                        ▼ mínima {resumo.vale.rotulo} · {formatarValorMetrica(resumo.vale.valor, chaveUnidade, 1)}
+                    </span>
+                    <span className="text-gray-600 font-medium">
+                        ◆ média {formatarValorMetrica(resumo.media, chaveUnidade, 1)}
+                    </span>
                 </div>
             )}
         </div>
@@ -118,11 +165,17 @@ const MapaCalor = memo(function MapaCalor({ mapaCalor }) {
         const { minimo, maximo } = mapaCalor;
         const faixa = (maximo - minimo) || 1;
         return mapaCalor.celulas.map((c) => {
-            if (c.valor === null) return { ...c, cor: '#E5E7EB' };
+            if (c.valor === null || c.valor === undefined) {
+                return { ...c, cor: '#E5E7EB', rotuloValor: 'sem dado' };
+            }
             const t = (c.valor - minimo) / faixa;
             const [de, para, k] = t < 0.5 ? [AZUL, AREIA, t / 0.5] : [AREIA, LARANJA, (t - 0.5) / 0.5];
             const rgb = de.map((c0, i) => Math.round(c0 + (para[i] - c0) * k));
-            return { ...c, cor: `rgb(${rgb[0]},${rgb[1]},${rgb[2]})` };
+            return {
+                ...c,
+                cor: `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`,
+                rotuloValor: formatarValorMetrica(c.valor, 'temperatura_ar', 1),
+            };
         });
     }, [mapaCalor]);
 
@@ -136,7 +189,7 @@ const MapaCalor = memo(function MapaCalor({ mapaCalor }) {
                 {celulas.map((c) => (
                     <div
                         key={c.dia}
-                        title={`Dia ${c.dia}: ${c.valor ?? 'sem dado'}°C`}
+                        title={`Dia ${c.dia}: ${c.rotuloValor}`}
                         className="aspect-square rounded flex items-center justify-center text-xs font-medium text-white"
                         style={{ backgroundColor: c.cor }}
                     >
@@ -145,9 +198,9 @@ const MapaCalor = memo(function MapaCalor({ mapaCalor }) {
                 ))}
             </div>
             <div className="flex items-center gap-2 text-xs text-gray-500">
-                <span>{fmt(mapaCalor.minimo, '°C')}</span>
+                <span>{formatarValorMetrica(mapaCalor.minimo, 'temperatura_ar', 1)}</span>
                 <div className="flex-1 h-1.5 rounded" style={{ background: 'linear-gradient(90deg, #3E8FD1, #EAD9A0, #C7622D)' }} />
-                <span>{fmt(mapaCalor.maximo, '°C')}</span>
+                <span>{formatarValorMetrica(mapaCalor.maximo, 'temperatura_ar', 1)}</span>
             </div>
         </div>
     );
@@ -161,17 +214,21 @@ const TabelaResumo = memo(function TabelaResumo({ periodo, tabela }) {
             <table className="w-full text-sm text-left">
                 <thead className="text-gray-500 text-xs uppercase">
                     <tr>
-                        <th className="py-2">Hora</th><th className="py-2">Temp.</th><th className="py-2">Umid.</th><th className="py-2">ITGU</th><th className="py-2">UV</th>
+                        <th className="py-2">Hora</th>
+                        <th className="py-2">Temp.</th>
+                        <th className="py-2">Umid.</th>
+                        <th className="py-2">ITGU</th>
+                        <th className="py-2">UV</th>
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                     {tabela.map((l) => (
                         <tr key={l.rotulo}>
                             <td className="py-1.5">{l.rotulo}</td>
-                            <td className="py-1.5 font-mono">{fmt(l.temperatura_ar, '°C')}</td>
-                            <td className="py-1.5 font-mono">{fmt(l.umidade_ar, '%')}</td>
-                            <td className="py-1.5 font-mono">{fmt(l.itgu)}</td>
-                            <td className="py-1.5 font-mono">{fmt(l.indice_uv)}</td>
+                            <td className="py-1.5 font-mono">{formatarValorMetrica(l.temperatura_ar, 'temperatura_ar', 1)}</td>
+                            <td className="py-1.5 font-mono">{formatarValorMetrica(l.umidade_ar, 'umidade_ar', 1)}</td>
+                            <td className="py-1.5 font-mono">{formatarValorMetrica(l.itgu, 'itgu', 1)}</td>
+                            <td className="py-1.5 font-mono">{formatarValorMetrica(l.indice_uv, 'indice_uv', 1)}</td>
                         </tr>
                     ))}
                 </tbody>
@@ -184,20 +241,30 @@ const TabelaResumo = memo(function TabelaResumo({ periodo, tabela }) {
         <table className="w-full text-sm text-left">
             <thead className="text-gray-500 text-xs uppercase">
                 <tr>
-                    <th className="py-2">{rotuloColuna}</th><th className="py-2">Máx.</th><th className="py-2">Mín.</th><th className="py-2">Umid. méd.</th>
+                    <th className="py-2">{rotuloColuna}</th>
+                    <th className="py-2">Máx.</th>
+                    <th className="py-2">Mín.</th>
+                    <th className="py-2">Umid. méd.</th>
                     <th className="py-2">{periodo === 'semana' ? 'Alerta?' : 'Dias alerta'}</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-                {tabela.map((l) => (
-                    <tr key={l.rotulo}>
-                        <td className="py-1.5">{l.rotulo}</td>
-                        <td className="py-1.5 font-mono">{fmt(l.maximo, '°C')}</td>
-                        <td className="py-1.5 font-mono">{fmt(l.minimo, '°C')}</td>
-                        <td className="py-1.5 font-mono">{fmt(l.umid_media, '%')}</td>
-                        <td className="py-1.5 font-mono">{periodo === 'semana' ? (l.teve_alerta ? 'Sim' : 'Não') : l.dias_alerta}</td>
-                    </tr>
-                ))}
+                {tabela.map((l) => {
+                    const diasAlerta = Number(l.dias_alerta ?? 0);
+                    return (
+                        <tr key={l.rotulo}>
+                            <td className="py-1.5">{l.rotulo}</td>
+                            <td className="py-1.5 font-mono">{formatarValorMetrica(l.maximo, 'temperatura_ar', 1)}</td>
+                            <td className="py-1.5 font-mono">{formatarValorMetrica(l.minimo, 'temperatura_ar', 1)}</td>
+                            <td className="py-1.5 font-mono">{formatarValorMetrica(l.umid_media, 'umidade_ar', 1)}</td>
+                            <td className="py-1.5 font-mono">
+                                {periodo === 'semana'
+                                    ? (l.teve_alerta ? 'Sim' : 'Não')
+                                    : `${formatarNumero(diasAlerta, 0)} ${diasAlerta === 1 ? 'dia' : 'dias'}`}
+                            </td>
+                        </tr>
+                    );
+                })}
             </tbody>
         </table>
     );
@@ -205,29 +272,39 @@ const TabelaResumo = memo(function TabelaResumo({ periodo, tabela }) {
 
 const PainelComparacao = memo(function PainelComparacao({ comparacao }) {
     if (!comparacao) return null;
+
+    const diasAbs = Math.abs(Number(comparacao.dias_alerta ?? 0));
     const linhas = [
-        { label: 'Temperatura máxima', valor: comparacao.temp_max, unidade: '°C' },
-        { label: 'Umidade média', valor: comparacao.umid_media, unidade: '%' },
-        { label: 'Dias em alerta', valor: comparacao.dias_alerta, unidade: '' },
+        { label: 'Temperatura máxima', valor: comparacao.temp_max, metrica: 'temperatura_ar', casas: 1 },
+        { label: 'Umidade média', valor: comparacao.umid_media, metrica: 'umidade_ar', casas: 1 },
+        { label: 'Dias em alerta', valor: comparacao.dias_alerta, metrica: diasAbs === 1 ? 'dia' : 'dias', casas: 0 },
     ];
 
     return (
         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-5">
             <p className="text-sm font-semibold text-gray-800 mb-3">Comparado ao período anterior</p>
-            {linhas.map((l) => (
-                <div key={l.label} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0 text-sm">
-                    <span className="text-gray-700">{l.label}</span>
-                    <span className={`font-mono font-semibold ${l.valor > 0 ? 'text-red-600' : l.valor < 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-                        {l.valor === null ? '—' : (l.valor > 0 ? '+' : '') + l.valor + l.unidade}
-                    </span>
-                </div>
-            ))}
+            {linhas.map((l) => {
+                const ehNulo = l.valor === null || l.valor === undefined;
+                const num = ehNulo ? 0 : Number(l.valor);
+                const sinal = num > 0 ? '+' : '';
+                const texto = ehNulo ? '—' : `${sinal}${formatarValorMetrica(num, l.metrica, l.casas)}`;
+
+                return (
+                    <div key={l.label} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0 text-sm">
+                        <span className="text-gray-700">{l.label}</span>
+                        <span className={`font-mono font-semibold ${num > 0 ? 'text-red-600' : num < 0 ? 'text-blue-600' : 'text-gray-400'}`}>
+                            {texto}
+                        </span>
+                    </div>
+                );
+            })}
         </div>
     );
 });
 
 export default function Show({ estacao, periodo, dataReferencia, metrica, boletim }) {
     const [carregando, setCarregando] = useState(false);
+    const { rotulo: nomeMetrica, sufixo: unidade } = useUnidadeMetrica(metrica);
 
     // Navegação que exige o servidor (período/data): partial reload + feedback visual imediato.
     const irPara = useCallback((params) => {
@@ -276,14 +353,14 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
     }, [dataReferencia, periodo, irPara]);
 
     const serie = boletim.series?.[metrica] ?? boletim.serieChart;
-    const nomeMetrica = METRICAS_ROTULOS[metrica]?.rotulo ?? metrica;
-    const unidade = METRICAS_ROTULOS[metrica]?.unidade ?? '';
 
     const tituloGrafico = useMemo(() => {
-        if (periodo === 'dia') return `${nomeMetrica} — ${boletim.rotulo}, por hora`;
-        if (periodo === 'ano') return `${nomeMetrica} média mensal — ${boletim.rotulo}`;
-        return `${nomeMetrica} máxima diária — ${boletim.rotulo}`;
-    }, [periodo, nomeMetrica, boletim.rotulo]);
+        const unidadeMetrica = UNIDADES_METRICAS[metrica]?.unidade;
+        const rotuloComUnidade = unidadeMetrica ? `${nomeMetrica} (${unidadeMetrica})` : nomeMetrica;
+        if (periodo === 'dia') return `${rotuloComUnidade} — ${boletim.rotulo}, por hora`;
+        if (periodo === 'ano') return `${rotuloComUnidade} média mensal — ${boletim.rotulo}`;
+        return `${rotuloComUnidade} máxima diária — ${boletim.rotulo}`;
+    }, [periodo, metrica, nomeMetrica, boletim.rotulo]);
 
     const breadcrumbs = useMemo(() => [
         { label: 'Estações', href: route('estacoes.index') },
@@ -350,20 +427,23 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
                     </div>
 
                     <div className="flex gap-2 flex-wrap">
-                        {METRICAS_SELETOR.map((m) => (
-                            <button
-                                key={m.valor}
-                                onClick={() => trocarMetrica(m.valor)}
-                                disabled={carregando}
-                                className={`px-3 py-1.5 rounded text-xs font-medium ${
-                                    metrica === m.valor
-                                        ? 'bg-indigo-100 text-indigo-800 border border-indigo-300'
-                                        : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
-                                }`}
-                            >
-                                {m.rotulo}
-                            </button>
-                        ))}
+                        {METRICAS_SELETOR.map((m) => {
+                            const unidadeBotao = UNIDADES_METRICAS[m.valor]?.unidade;
+                            return (
+                                <button
+                                    key={m.valor}
+                                    onClick={() => trocarMetrica(m.valor)}
+                                    disabled={carregando}
+                                    className={`px-3 py-1.5 rounded text-xs font-medium ${
+                                        metrica === m.valor
+                                            ? 'bg-indigo-100 text-indigo-800 border border-indigo-300'
+                                            : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    {m.rotulo}{unidadeBotao ? ` (${unidadeBotao})` : ''}
+                                </button>
+                            );
+                        })}
                     </div>
 
                     <div
@@ -376,10 +456,17 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
                                     titulo={tituloGrafico}
                                     subtitulo={SUBTITULOS[periodo]}
                                     serie={serie}
+                                    metrica={metrica}
                                     unidade={unidade}
                                 />
                                 <Suspense fallback={<EsqueletoGrafico />}>
-                                    <GraficoBoletim periodo={periodo} serie={serie} nomeSerie={nomeMetrica} />
+                                    <GraficoBoletim
+                                        periodo={periodo}
+                                        serie={serie}
+                                        metrica={metrica}
+                                        nomeSerie={nomeMetrica}
+                                        unidade={unidade}
+                                    />
                                 </Suspense>
                             </div>
                         )}
