@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import ChuvaBadge, { formatarMm, IconeChuva, obterEstiloChuva } from '@/Components/ChuvaBadge';
+import ChuvaBadge, { formatarMm, obterEstiloChuva } from '@/Components/ChuvaBadge';
 import { Head, Link, router } from '@inertiajs/react';
 import { SeletorMetrica, SeletorPeriodo, NavegacaoPeriodo, METRICAS } from '@/Components/Dashboard/SeletoresPeriodo';
 
@@ -86,10 +86,11 @@ function CardChuva({ chuvaAtual, ultimaLeitura }) {
     const unidadeExibida = temHora ? ' mm/h' : (temUltima ? ' mm' : '');
 
     return (
-        <div className="rounded-lg p-4 text-center bg-gray-50 flex flex-col justify-between">
+        <div className="rounded-lg p-4 text-center bg-gray-50 flex flex-col justify-between min-w-0">
             <div>
                 <p className={`text-2xl font-bold ${chovendo ? estilo.texto : 'text-gray-800'}`}>
-                    {valorExibido}{valorExibido !== '—' ? unidadeExibida : ''}
+                    {valorExibido}
+                    {valorExibido !== '—' && <span className="text-base font-semibold">{unidadeExibida}</span>}
                 </p>
                 <p className="text-xs mt-1 text-gray-500">
                     {temHora ? 'Chuva (1h)' : 'Chuva'}
@@ -97,7 +98,7 @@ function CardChuva({ chuvaAtual, ultimaLeitura }) {
             </div>
             {(temHora || temUltima) && (
                 <div className="border-t border-gray-200 mt-2 pt-2 flex flex-col items-center gap-1">
-                    <ChuvaBadge chuva={chuvaAtual} exibirSemChuva />
+                    <ChuvaBadge chuva={chuvaAtual} exibirSemChuva className="max-w-full justify-center text-center" />
                     {temUltima && (
                         <span className="text-[11px] text-gray-400">
                             Último ciclo: {formatarMm(ultimaLeitura.chuva_mm)} mm
@@ -139,18 +140,15 @@ function ModoCampo({ estacao, ultimaLeitura, chuvaAtual, corHero }) {
             </div>
 
             {chuvaAtual?.chovendo && (
-                <div className={`rounded-lg p-3.5 flex items-center justify-between gap-3 ${estiloChuva.banner}`}>
-                    <div className="flex items-center gap-2.5 min-w-0">
-                        <IconeChuva className={`h-6 w-6 shrink-0 ${estiloChuva.icone}`} />
-                        <div className="min-w-0">
-                            <p className="text-sm font-semibold leading-tight">{chuvaAtual.chuva_label}</p>
-                            <p className="text-xs opacity-80">Acumulado na última hora</p>
-                        </div>
+                <div className={`bg-white rounded-lg shadow-sm border-l-4 ${estiloChuva.borda} p-4 flex items-center justify-between gap-3`}>
+                    <div className="min-w-0 space-y-1">
+                        <ChuvaBadge chuva={chuvaAtual} />
+                        <p className="text-xs text-gray-500">Acumulado na última hora</p>
                     </div>
                     <div className="text-right shrink-0">
-                        <p className="text-base font-bold font-mono">{formatarMm(chuvaAtual.chuva_ultima_hora_mm)} mm/h</p>
+                        <p className={`text-xl font-bold ${estiloChuva.texto}`}>{formatarMm(chuvaAtual.chuva_ultima_hora_mm)} mm/h</p>
                         {ultimaLeitura.chuva_mm !== null && ultimaLeitura.chuva_mm !== undefined && (
-                            <p className="text-[11px] opacity-75">Último ciclo: {formatarMm(ultimaLeitura.chuva_mm)} mm</p>
+                            <p className="text-xs text-gray-400">Último ciclo: {formatarMm(ultimaLeitura.chuva_mm)} mm</p>
                         )}
                     </div>
                 </div>
@@ -248,7 +246,7 @@ export default function Detalhe({
         <AuthenticatedLayout
             breadcrumbs={[{ label: 'Estações', href: route('estacoes.index') }, { label: estacao.nome }]}
             header={
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                     <Link href={route('dashboard')} className="text-gray-400 hover:text-gray-600">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
