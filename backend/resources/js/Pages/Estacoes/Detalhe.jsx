@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import ChuvaBadge, { formatarMm, IconeChuva, obterEstiloChuva } from '@/Components/ChuvaBadge';
 import { Head, Link, router } from '@inertiajs/react';
 import { SeletorMetrica, SeletorPeriodo, NavegacaoPeriodo, METRICAS } from '@/Components/Dashboard/SeletoresPeriodo';
 
@@ -73,10 +74,45 @@ function CampoMetrica({ rotulo, valor, unidade = '', destaque = false, minMax = 
     );
 }
 
+function CardChuva({ chuvaAtual, ultimaLeitura }) {
+    const temHora = chuvaAtual?.chuva_ultima_hora_mm !== null && chuvaAtual?.chuva_ultima_hora_mm !== undefined;
+    const temUltima = ultimaLeitura?.chuva_mm !== null && ultimaLeitura?.chuva_mm !== undefined;
+    const chovendo = Boolean(chuvaAtual?.chovendo);
+    const estilo = obterEstiloChuva(chuvaAtual?.chuva_classificacao);
+
+    const valorExibido = temHora
+        ? formatarMm(chuvaAtual.chuva_ultima_hora_mm)
+        : (temUltima ? formatarMm(ultimaLeitura.chuva_mm) : '—');
+    const unidadeExibida = temHora ? ' mm/h' : (temUltima ? ' mm' : '');
+
+    return (
+        <div className="rounded-lg p-4 text-center bg-gray-50 flex flex-col justify-between">
+            <div>
+                <p className={`text-2xl font-bold ${chovendo ? estilo.texto : 'text-gray-800'}`}>
+                    {valorExibido}{valorExibido !== '—' ? unidadeExibida : ''}
+                </p>
+                <p className="text-xs mt-1 text-gray-500">
+                    {temHora ? 'Chuva (1h)' : 'Chuva'}
+                </p>
+            </div>
+            {(temHora || temUltima) && (
+                <div className="border-t border-gray-200 mt-2 pt-2 flex flex-col items-center gap-1">
+                    <ChuvaBadge chuva={chuvaAtual} exibirSemChuva />
+                    {temUltima && (
+                        <span className="text-[11px] text-gray-400">
+                            Último ciclo: {formatarMm(ultimaLeitura.chuva_mm)} mm
+                        </span>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 // Modo campo: layout dedicado para telas pequenas (celular em campo),
 // focado nos dados essenciais de forma bem legivel, sem precisar rolar
 // muito nem depender do mouse/hover que o layout desktop usa.
-function ModoCampo({ estacao, ultimaLeitura, cor, corHero }) {
+function ModoCampo({ estacao, ultimaLeitura, chuvaAtual, corHero }) {
     if (!ultimaLeitura) {
         return (
             <div className="sm:hidden bg-white rounded-lg shadow-sm p-6 text-center text-sm text-gray-400">
@@ -84,6 +120,8 @@ function ModoCampo({ estacao, ultimaLeitura, cor, corHero }) {
             </div>
         );
     }
+
+    const estiloChuva = obterEstiloChuva(chuvaAtual?.chuva_classificacao);
 
     return (
         <div className="sm:hidden space-y-4 pb-20">
@@ -99,6 +137,24 @@ function ModoCampo({ estacao, ultimaLeitura, cor, corHero }) {
                     Atualizado {new Date(ultimaLeitura.registrado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                 </p>
             </div>
+
+            {chuvaAtual?.chovendo && (
+                <div className={`rounded-lg p-3.5 flex items-center justify-between gap-3 ${estiloChuva.banner}`}>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <IconeChuva className={`h-6 w-6 shrink-0 ${estiloChuva.icone}`} />
+                        <div className="min-w-0">
+                            <p className="text-sm font-semibold leading-tight">{chuvaAtual.chuva_label}</p>
+                            <p className="text-xs opacity-80">Acumulado na última hora</p>
+                        </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                        <p className="text-base font-bold font-mono">{formatarMm(chuvaAtual.chuva_ultima_hora_mm)} mm/h</p>
+                        {ultimaLeitura.chuva_mm !== null && ultimaLeitura.chuva_mm !== undefined && (
+                            <p className="text-[11px] opacity-75">Último ciclo: {formatarMm(ultimaLeitura.chuva_mm)} mm</p>
+                        )}
+                    </div>
+                </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
                 <CampoMetrica rotulo="Umidade" valor={ultimaLeitura.umidade_ar} unidade="%" corValor={classificarUmidade(ultimaLeitura.umidade_ar)} />
@@ -160,6 +216,7 @@ function BarraInferiorMobile({ estacaoId }) {
 export default function Detalhe({
     estacao,
     ultimaLeitura,
+    chuvaAtual,
     minMax,
     serieMetrica,
     metricasDisponiveis,
@@ -205,6 +262,9 @@ export default function Detalhe({
                             {ultimaLeitura.itgu_classificacao}
                         </span>
                     )}
+                    {chuvaAtual?.chovendo && (
+                        <ChuvaBadge chuva={chuvaAtual} mostrarVolume className="hidden sm:inline-flex" />
+                    )}
                     <Link
                         href={route('boletim.show', estacao.id)}
                         className="ml-auto px-3 py-1.5 bg-white border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -219,7 +279,7 @@ export default function Detalhe({
             <div className="py-6 sm:py-12">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
 
-                    <ModoCampo estacao={estacao} ultimaLeitura={ultimaLeitura} cor={cor} corHero={corHero} />
+                    <ModoCampo estacao={estacao} ultimaLeitura={ultimaLeitura} chuvaAtual={chuvaAtual} corHero={corHero} />
 
                     <div className="hidden sm:block space-y-6">
                         <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
@@ -240,7 +300,7 @@ export default function Detalhe({
                                         <CampoMetrica rotulo="TVOC" valor={ultimaLeitura.tvoc_ppb} unidade=" ppb" minMax={minMax.tvoc_ppb} />
                                         <CampoMetrica rotulo="Qualid. Ar" valor={ultimaLeitura.aqi} unidade="/5" minMax={minMax.aqi} />
                                         <CampoMetrica rotulo="Temp. Globo Negro" valor={ultimaLeitura.temp_globo_negro} unidade="°C" minMax={minMax.temp_globo_negro} />
-                                        <CampoMetrica rotulo="Chuva" valor={ultimaLeitura.chuva_mm} unidade=" mm" />
+                                        <CardChuva chuvaAtual={chuvaAtual} ultimaLeitura={ultimaLeitura} />
                                         <CampoMetrica rotulo="Vel. Vento" valor={ultimaLeitura.vel_vento} unidade=" km/h" />
                                     </div>
                                     <p className="text-xs text-gray-400 mt-4">

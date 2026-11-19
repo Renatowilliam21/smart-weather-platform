@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Estacao;
 use App\Models\AlertaDisparado;
+use App\Services\ChuvaService;
 use App\Services\SerieMetricaService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,7 +14,10 @@ use Inertia\Response;
 
 class EstacaoController extends Controller
 {
-    public function __construct(private SerieMetricaService $servico) {}
+    public function __construct(
+        private SerieMetricaService $servico,
+        private ChuvaService $chuvaService
+    ) {}
     public function show(Estacao $estacao, Request $request): Response
     {
         $metrica = $request->string('metrica', 'itgu')->toString();
@@ -23,6 +27,7 @@ class EstacaoController extends Controller
         return Inertia::render('Estacoes/Detalhe', [
             'estacao' => $estacao,
             'ultimaLeitura' => $estacao->leituras()->latest('registrado_em')->first(),
+            'chuvaAtual' => $this->chuvaService->resumoUltimaHora($estacao->id),
             'minMax' => $this->servico->minMaxMultiplasMetricas($estacao->id, [
                 'temperatura_ar', 'umidade_ar', 'itgu', 'itu', 'luminosidade',
                 'indice_uv', 'co2_ppm', 'tvoc_ppb', 'aqi', 'temp_globo_negro',
