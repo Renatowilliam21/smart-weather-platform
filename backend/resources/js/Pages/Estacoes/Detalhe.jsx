@@ -103,7 +103,7 @@ function ModoCampo({ estacao, ultimaLeitura, cor, corHero }) {
             <div className="grid grid-cols-2 gap-3">
                 <CampoMetrica rotulo="Umidade" valor={ultimaLeitura.umidade_ar} unidade="%" corValor={classificarUmidade(ultimaLeitura.umidade_ar)} />
                 <CampoMetrica rotulo="ITGU" valor={ultimaLeitura.itgu} />
-                <CampoMetrica rotulo="Índice UV" valor={ultimaLeitura.indice_uv} />
+                <CampoMetrica rotulo="Sensação Térmica" valor={ultimaLeitura.temp_globo_negro} unidade="°C" />
                 <CampoMetrica rotulo="Pressão" valor={ultimaLeitura.pressao} unidade=" hPa" />
             </div>
 
