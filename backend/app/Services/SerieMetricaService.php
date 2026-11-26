@@ -75,11 +75,9 @@ class SerieMetricaService
 
         $estacoes = Estacao::where('ativo', true)
             ->when($estacaoId, fn ($query) => $query->where('id', $estacaoId))
-            ->get(['id', 'nome', 'possui_pluviometro']);
+            ->get(['id', 'nome']);
 
         $driver = DB::connection()->getDriverName();
-        $agora = now();
-        $chaveLimitePeriodoAberto = null;
 
         if ($periodo === 'mes') {
             $inicio = $dataReferencia->copy()->startOfMonth();
@@ -91,11 +89,6 @@ class SerieMetricaService
             };
             $rotulos = collect(range(1, $fim->day))
                 ->mapWithKeys(fn ($dia) => [sprintf('%02d', $dia) => sprintf('%02d', $dia)]);
-            if ($dataReferencia->isSameMonth($agora)) {
-                $chaveLimitePeriodoAberto = $agora->format('d');
-            } elseif ($inicio->isFuture()) {
-                $chaveLimitePeriodoAberto = '00';
-            }
         } elseif ($periodo === 'ano') {
             $inicio = $dataReferencia->copy()->startOfYear();
             $fim = $dataReferencia->copy()->endOfYear();
@@ -105,11 +98,6 @@ class SerieMetricaService
                 default => "DATE_FORMAT(registrado_em, '%m')",
             };
             $rotulos = collect(self::NOMES_MESES_ABREV);
-            if ($dataReferencia->isSameYear($agora)) {
-                $chaveLimitePeriodoAberto = $agora->format('m');
-            } elseif ($inicio->isFuture()) {
-                $chaveLimitePeriodoAberto = '00';
-            }
         } else {
             $inicio = $dataReferencia->copy()->startOfDay();
             $fim = $dataReferencia->copy()->endOfDay();
@@ -120,11 +108,6 @@ class SerieMetricaService
             };
             $rotulos = collect(range(0, 23))
                 ->mapWithKeys(fn ($hora) => [sprintf('%02d', $hora) => sprintf('%02d:00', $hora)]);
-            if ($dataReferencia->isSameDay($agora)) {
-                $chaveLimitePeriodoAberto = $agora->format('H');
-            } elseif ($inicio->isFuture()) {
-                $chaveLimitePeriodoAberto = '-1';
-            }
         }
 
         $funcaoAgregacao = match ($metrica) {
@@ -133,58 +116,41 @@ class SerieMetricaService
             default => "AVG({$metrica})",
         };
 
-        $idsEstacoesValidas = $metrica === 'chuva_mm'
-            ? $estacoes->where('possui_pluviometro', true)->pluck('id')->all()
-            : $estacoes->pluck('id')->all();
-
         // Realiza agregação direta no banco de dados para evitar estouro de memória (OOM)
         // quando a estação tem centenas de milhares de leituras registradas.
-        $agrupados = $idsEstacoesValidas === []
-            ? collect()
-            : Leitura::whereBetween('registrado_em', [$inicio, $fim])
-                ->whereIn('estacao_id', $idsEstacoesValidas)
-                ->whereNotNull($metrica)
-                ->when($metrica === 'chuva_mm', fn ($q) => $q->whereBetween('chuva_mm', [0, ChuvaService::MAX_MM_POR_CICLO]))
-                ->selectRaw("estacao_id, {$expressaoPeriodo} as chave_periodo, {$funcaoAgregacao} as valor")
-                ->groupBy('estacao_id', DB::raw($expressaoPeriodo))
-                ->get();
+        $agrupados = Leitura::whereBetween('registrado_em', [$inicio, $fim])
+            ->whereNotNull($metrica)
+            ->when($estacaoId, fn ($query) => $query->where('estacao_id', $estacaoId))
+            ->selectRaw("estacao_id, {$expressaoPeriodo} as chave_periodo, {$funcaoAgregacao} as valor")
+            ->groupBy('estacao_id', DB::raw($expressaoPeriodo))
+            ->get();
 
         $mediasIndexadas = [];
-        $estacoesComDados = [];
         foreach ($agrupados as $item) {
             $chave = $item->estacao_id . '_' . $item->chave_periodo;
             $mediasIndexadas[$chave] = round((float) $item->valor, 2);
-            $estacoesComDados[(int) $item->estacao_id] = true;
         }
 
         $serie = [];
         $acumulados = [];
         foreach ($estacoes as $estacao) {
-            $acumulados[$estacao->id] = 0.0;
+            $acumulados[$estacao->id] = 0;
         }
 
         foreach ($rotulos as $chave => $rotulo) {
-            $chaveStr = (string) $chave;
-            $noFuturo = $chaveLimitePeriodoAberto !== null && strcmp($chaveStr, $chaveLimitePeriodoAberto) > 0;
-
             foreach ($estacoes as $estacao) {
-                $indice = $estacao->id . '_' . $chaveStr;
+                $indice = $estacao->id . '_' . $chave;
                 $valor = $mediasIndexadas[$indice] ?? null;
 
                 if ($metrica === 'chuva_mm' && $valor !== null) {
                     $acumulados[$estacao->id] += $valor;
                 }
 
-                $exibirAcumulado = $metrica === 'chuva_mm'
-                    && $estacao->possui_pluviometro
-                    && isset($estacoesComDados[$estacao->id])
-                    && (! $noFuturo || $valor !== null);
-
                 $serie[] = [
                     'estacao_id' => $estacao->id,
                     'rotulo' => $rotulo,
                     'valor' => $valor,
-                    'valor_acumulado' => $exibirAcumulado ? round($acumulados[$estacao->id], 2) : null,
+                    'valor_acumulado' => $metrica === 'chuva_mm' ? round($acumulados[$estacao->id], 2) : null,
                 ];
             }
         }

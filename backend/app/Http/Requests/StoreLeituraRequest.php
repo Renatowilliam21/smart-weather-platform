@@ -12,18 +12,6 @@ class StoreLeituraRequest extends FormRequest
         return true;
     }
 
-    protected function prepareForValidation(): void
-    {
-        $estacao = $this->attributes->get('estacao');
-
-        // Se a estação não possui pluviômetro físico instalado, descarta qualquer
-        // valor espúrio de chuva_mm (ex.: ruído eletromagnético no GPIO26 aberto)
-        // antes mesmo da validação para não rejeitar os demais sensores válidos.
-        if ($estacao && ! $estacao->possui_pluviometro) {
-            $this->merge(['chuva_mm' => null]);
-        }
-    }
-
     public function rules(): array
     {
         return [
@@ -34,7 +22,7 @@ class StoreLeituraRequest extends FormRequest
             'pressao' => 'nullable|numeric|between:300,1200',
             'altitude' => 'nullable|numeric|between:-500,9000',
             'indice_uv' => 'nullable|numeric|min:0|max:25',
-            'luminosidade' => 'nullable|numeric|min:0|max:200000',
+            'luminosidade' => 'nullable|numeric|min:0|max:100',
             'co2_ppm' => 'nullable|numeric|min:0|max:10000',
             'tvoc_ppb' => 'nullable|numeric|min:0|max:60000',
             'aqi' => 'nullable|integer|min:1|max:5',

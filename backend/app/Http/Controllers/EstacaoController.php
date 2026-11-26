@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Estacao;
 use App\Models\AlertaDisparado;
-use App\Services\ChuvaService;
 use App\Services\SerieMetricaService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,39 +13,22 @@ use Inertia\Response;
 
 class EstacaoController extends Controller
 {
-    public function __construct(
-        private SerieMetricaService $servico,
-        private ChuvaService $chuvaService
-    ) {}
+    public function __construct(private SerieMetricaService $servico) {}
     public function show(Estacao $estacao, Request $request): Response
     {
         $metrica = $request->string('metrica', 'itgu')->toString();
         $periodo = $request->string('periodo', 'dia')->toString();
         $dataReferencia = $this->servico->resolverDataReferencia($request->string('data')->toString());
 
-        $ultimaLeitura = $estacao->leituras()->latest('registrado_em')->first();
-        if ($ultimaLeitura && ! $estacao->possui_pluviometro) {
-            $ultimaLeitura->chuva_mm = null;
-        }
-
-        $metricasDisponiveis = $estacao->possui_pluviometro
-            ? SerieMetricaService::METRICAS_PERMITIDAS
-            : array_values(array_diff(SerieMetricaService::METRICAS_PERMITIDAS, ['chuva_mm']));
-
-        if (! $estacao->possui_pluviometro && $metrica === 'chuva_mm') {
-            $metrica = 'itgu';
-        }
-
         return Inertia::render('Estacoes/Detalhe', [
             'estacao' => $estacao,
-            'ultimaLeitura' => $ultimaLeitura,
-            'chuvaAtual' => $this->chuvaService->resumoUltimaHora($estacao->id),
+            'ultimaLeitura' => $estacao->leituras()->latest('registrado_em')->first(),
             'minMax' => $this->servico->minMaxMultiplasMetricas($estacao->id, [
                 'temperatura_ar', 'umidade_ar', 'itgu', 'itu', 'luminosidade',
                 'indice_uv', 'co2_ppm', 'tvoc_ppb', 'aqi', 'temp_globo_negro',
             ], now()),
             'serieMetrica' => $this->servico->serieMetricaPorPeriodo($estacao->id, $metrica, $periodo, $dataReferencia),
-            'metricasDisponiveis' => $metricasDisponiveis,
+            'metricasDisponiveis' => SerieMetricaService::METRICAS_PERMITIDAS,
             'metricaSelecionada' => $metrica,
             'periodosDisponiveis' => SerieMetricaService::PERIODOS_PERMITIDOS,
             'periodoSelecionado' => $periodo,
@@ -90,12 +72,8 @@ class EstacaoController extends Controller
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
             'ativo' => 'boolean',
-            'possui_pluviometro' => 'boolean',
         ]);
 
-        $dados['possui_pluviometro'] = $request->has('possui_pluviometro')
-            ? $request->boolean('possui_pluviometro')
-            : true;
         $dados['token_api'] = Str::random(32);
 
         Estacao::create($dados);
@@ -122,7 +100,6 @@ class EstacaoController extends Controller
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
             'ativo' => 'boolean',
-            'possui_pluviometro' => 'boolean',
         ]);
 
         $estacao->update($dados);

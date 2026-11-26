@@ -15,11 +15,6 @@ class Estacao extends Model
 
     protected $table = 'estacoes';
 
-    protected $attributes = [
-        'ativo' => true,
-        'possui_pluviometro' => true,
-    ];
-
     protected $fillable = [
         'nome',
         'localizacao',
@@ -27,14 +22,12 @@ class Estacao extends Model
         'longitude',
         'token_api',
         'ativo',
-        'possui_pluviometro',
     ];
 
     protected $casts = [
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
         'ativo' => 'boolean',
-        'possui_pluviometro' => 'boolean',
     ];
 
     protected $hidden = [
@@ -43,19 +36,14 @@ class Estacao extends Model
 
     protected static function booted(): void
     {
-        static::saved(function (self $estacao) {
-            Cache::forget('api_v1_estacoes_lista');
-            if ($estacao->wasChanged('possui_pluviometro')) {
-                Cache::flush();
-            }
-        });
+        static::saved(fn () => Cache::forget('api_v1_estacoes_lista'));
         static::deleted(fn () => Cache::forget('api_v1_estacoes_lista'));
     }
 
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['nome', 'localizacao', 'latitude', 'longitude', 'ativo', 'possui_pluviometro'])
+            ->logOnly(['nome', 'localizacao', 'latitude', 'longitude', 'ativo'])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs()
             ->useLogName('estacao');

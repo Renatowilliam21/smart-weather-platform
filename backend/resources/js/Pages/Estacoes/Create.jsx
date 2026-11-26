@@ -12,7 +12,6 @@ export default function Create() {
         latitude: '',
         longitude: '',
         ativo: true,
-        possui_pluviometro: true,
     });
 
     const submit = (e) => {
@@ -88,37 +87,17 @@ export default function Create() {
                                 </div>
                             </div>
 
-                            <div className="space-y-3">
-                                <div className="flex items-center">
-                                    <input
-                                        id="ativo"
-                                        type="checkbox"
-                                        checked={data.ativo}
-                                        onChange={(e) => setData('ativo', e.target.checked)}
-                                        className="rounded border-gray-300 text-gray-800 shadow-sm focus:ring-gray-500"
-                                    />
-                                    <label htmlFor="ativo" className="ml-2 text-sm text-gray-600">
-                                        Estação ativa
-                                    </label>
-                                </div>
-
-                                <div>
-                                    <div className="flex items-center">
-                                        <input
-                                            id="possui_pluviometro"
-                                            type="checkbox"
-                                            checked={data.possui_pluviometro}
-                                            onChange={(e) => setData('possui_pluviometro', e.target.checked)}
-                                            className="rounded border-gray-300 text-gray-800 shadow-sm focus:ring-gray-500"
-                                        />
-                                        <label htmlFor="possui_pluviometro" className="ml-2 text-sm text-gray-700 font-medium">
-                                            Possui pluviômetro físico instalado
-                                        </label>
-                                    </div>
-                                    <p className="mt-1 ml-6 text-xs text-gray-500">
-                                        Ative apenas nas estações que têm o pluviômetro conectado ao GPIO 26. Nas demais, sinais espúrios de chuva são ignorados automaticamente.
-                                    </p>
-                                </div>
+                            <div className="flex items-center">
+                                <input
+                                    id="ativo"
+                                    type="checkbox"
+                                    checked={data.ativo}
+                                    onChange={(e) => setData('ativo', e.target.checked)}
+                                    className="rounded border-gray-300 text-gray-800 shadow-sm focus:ring-gray-500"
+                                />
+                                <label htmlFor="ativo" className="ml-2 text-sm text-gray-600">
+                                    Estação ativa
+                                </label>
                             </div>
 
                             <div className="flex items-center gap-4">

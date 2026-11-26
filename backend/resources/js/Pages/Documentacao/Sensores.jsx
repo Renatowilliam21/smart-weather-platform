@@ -312,13 +312,13 @@ export default function Sensores() {
                         <SensorCard
                             titulo="Pluviômetro de Báscula (Tipping Bucket)"
                             status="instalado"
-                            descricao="Mede volume de chuva por meio de um contador de pulsos magnéticos — cada 'báscula' (basculamento do balde) gera um pulso validado por largura mínima de nível LOW (≥3ms) e debounce de 400ms no ESP32 contra interferência eletromagnética (60Hz/Wi-Fi) e repique mecânico."
+                            descricao="Mede volume de chuva por meio de um contador de pulsos magnéticos — cada 'báscula' (basculamento do balde) gera um pulso, contado via interrupção no ESP32 (com debounce de 15ms contra ruído mecânico)."
                             campos={['chuva_mm']}
                             pinos={[
-                                { origem: 'VCC/Comum', destino: 'GND', obs: 'Chave magnética (reed switch) fechando para GND' },
-                                { origem: 'Sinal', destino: 'GPIO 26', obs: 'Interrupção digital validada (pull-up ativo somente quando habilitado)' },
+                                { origem: 'VCC/Comum', destino: '3.3V ou GND (conforme o modelo)', obs: 'Chave magnética (reed switch), sem polaridade definida' },
+                                { origem: 'Sinal', destino: 'GPIO 26', obs: 'Interrupção digital (FALLING), pull-up interno' },
                             ]}
-                            notas="Deve ser habilitado apenas nas estações que possuem o sensor instalado (tanto no cadastro da estação no painel web quanto na página local de configuração do ESP32). Calibração configurável na página do ESP32 (ex.: 0,25mm ou 0,50mm por pulso)."
+                            notas="Calibração atual: 0,5mm de chuva por pulso — valor a confirmar/recalibrar com o fabricante específico do sensor."
                         />
                         <SensorCard
                             titulo="Anemômetro (Velocidade do Vento)"

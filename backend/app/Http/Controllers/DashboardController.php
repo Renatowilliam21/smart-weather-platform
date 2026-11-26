@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\AlertaDisparado;
 use App\Models\Estacao;
 use App\Models\EstacaoOfflineEvento;
-use App\Services\ChuvaService;
 use App\Services\SerieMetricaService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -14,8 +13,7 @@ use Inertia\Response;
 class DashboardController extends Controller
 {
     public function __construct(
-        private SerieMetricaService $servico,
-        private ChuvaService $chuvaService
+        private SerieMetricaService $servico
     ) {}
 
     public function index(Request $request): Response
@@ -69,17 +67,12 @@ class DashboardController extends Controller
             ->pluck('estacao_id')
             ->toArray();
 
-        $estacoes = Estacao::where('ativo', true)
+        return Estacao::where('ativo', true)
             ->with(['leituras' => function ($query) {
                 $query->latest('registrado_em')->limit(1);
             }])
-            ->get();
-
-        $chuvaPorEstacao = $this->chuvaService->resumoUltimaHoraPorEstacoes(
-            $estacoes->pluck('id')->all()
-        );
-
-        return $estacoes->map(function ($estacao) use ($idsOffline, $chuvaPorEstacao) {
+            ->get()
+            ->map(function ($estacao) use ($idsOffline) {
                 $ultima = $estacao->leituras->first();
 
                 return [
@@ -89,8 +82,6 @@ class DashboardController extends Controller
                     'latitude' => $estacao->latitude,
                     'longitude' => $estacao->longitude,
                     'offline' => in_array($estacao->id, $idsOffline),
-                    'possui_pluviometro' => (bool) $estacao->possui_pluviometro,
-                    'chuva_atual' => $chuvaPorEstacao[$estacao->id] ?? $this->chuvaService->resumo(null),
                     'ultima_leitura' => $ultima ? [
                         'temperatura_ar' => $ultima->temperatura_ar,
                         'umidade_ar' => $ultima->umidade_ar,

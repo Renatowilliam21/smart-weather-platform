@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import ChuvaBadge from '@/Components/ChuvaBadge';
 import { Head, Link, router } from '@inertiajs/react';
 
 // Carregados sob demanda: Leaflet (mapa) e Recharts (grafico) sao bibliotecas
@@ -97,33 +96,25 @@ function EstacaoCard({ estacao }) {
     };
 
     return (
-        <Link href={route('estacoes.show', estacao.id)} className={`flex flex-col justify-between bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 hover:shadow-md transition-shadow ${estacao.offline ? "ring-2 ring-red-300" : ""}`}>
-            <div>
-                <div className="flex justify-between items-start gap-3 mb-4">
-                    <div className="min-w-0">
-                        <h3 className="font-semibold text-lg text-gray-800 flex items-center gap-2 flex-wrap">
-                            {estacao.nome}
-                            {estacao.offline && (
-                                <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-                                    Offline
-                                </span>
-                            )}
-                        </h3>
-                        <p className="text-sm text-gray-500">{estacao.localizacao}</p>
-                    </div>
-                    {leitura?.itgu_classificacao && (
-                        <span className={`px-2 py-1 rounded text-xs font-medium shrink-0 ${cor}`}>
-                            {leitura.itgu_classificacao}
-                        </span>
-                    )}
+        <Link href={route('estacoes.show', estacao.id)} className={`block bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 hover:shadow-md transition-shadow ${estacao.offline ? "ring-2 ring-red-300" : ""}`}>
+            <div className="flex justify-between items-start mb-4">
+                <div>
+                    <h3 className="font-semibold text-lg text-gray-800 flex items-center gap-2">
+                        {estacao.nome}
+                        {estacao.offline && (
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                                Offline
+                            </span>
+                        )}
+                    </h3>
+                    <p className="text-sm text-gray-500">{estacao.localizacao}</p>
                 </div>
-                {estacao.chuva_atual?.chovendo && (
-                    <div className="mb-3">
-                        <ChuvaBadge chuva={estacao.chuva_atual} mostrarVolume />
-                    </div>
+                {leitura?.itgu_classificacao && (
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${cor}`}>
+                        {leitura.itgu_classificacao}
+                    </span>
                 )}
             </div>
-            <div>
             {leitura ? (
                 <>
                     <div className="grid grid-cols-3 gap-4 text-center">
@@ -191,7 +182,6 @@ function EstacaoCard({ estacao }) {
                     Atualizado em {new Date(leitura.registrado_em).toLocaleString('pt-BR')}
                 </p>
             )}
-            </div>
         </Link>
     );
 }

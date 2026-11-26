@@ -174,30 +174,6 @@ class BoletimServiceTest extends TestCase
         $this->assertSame($b['series']['umidade_ar'], $b['serieChart']);
     }
 
-    public function test_boletim_do_dia_e_semana_calculam_resumo_e_classificacao_de_chuva(): void
-    {
-        $this->leitura('2026-11-17 09:10:00', ['temperatura_ar' => 24, 'chuva_mm' => 1.50]);
-        $this->leitura('2026-11-17 15:10:00', ['temperatura_ar' => 23, 'chuva_mm' => 2.00]);
-        $this->leitura('2026-11-17 15:40:00', ['temperatura_ar' => 22, 'chuva_mm' => 3.50]);
-        $this->leitura('2026-11-18 10:00:00', ['temperatura_ar' => 26, 'chuva_mm' => 1.00]);
-
-        $dia = $this->gerar('dia');
-        $this->assertTrue($dia['chuva']['teve_chuva']);
-        $this->assertEquals(7.0, $dia['chuva']['total_mm']);
-        $this->assertEquals(5.5, $dia['chuva']['pico_hora_mm']);
-        $this->assertSame('15:00', $dia['chuva']['pico_quando']);
-        $this->assertSame(2, $dia['chuva']['horas_com_chuva']);
-        $this->assertSame('moderada', $dia['chuva']['chuva_classificacao']);
-        $this->assertSame('Chuva moderada', $dia['chuva']['chuva_label']);
-
-        $semana = $this->gerar('semana');
-        $this->assertTrue($semana['chuva']['teve_chuva']);
-        $this->assertEquals(8.0, $semana['chuva']['total_mm']);
-        $this->assertSame(2, $semana['chuva']['dias_com_chuva']);
-        $this->assertEquals(7.0, $semana['chuva']['pico_dia_mm']);
-        $this->assertSame('17/11', $semana['chuva']['pico_dia_quando']);
-    }
-
     public function test_tela_do_boletim_envia_payload_enxuto(): void
     {
         $this->semearSemana();

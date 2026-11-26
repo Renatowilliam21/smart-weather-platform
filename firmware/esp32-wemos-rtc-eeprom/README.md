@@ -115,6 +115,3 @@ bovinos leiteiros em regiões semiáridas (diferente da forma do ITGU).
   EEPROM independentemente, nao so "totalRegistros".
 - v2.10: mesma adicao do esp32-estacao — pluviometro (GPIO26), anemometro
   (GPIO27) e VEML7700 (luminosidade em lux, prioridade sobre o LDR).
-- v2.11: mesma blindagem contra chuva falsa do esp32-estacao — validacao
-  multi-amostra via FreeRTOS (8ms LOW + retorno a HIGH + debounce 500ms),
-  rastreamento independente de envio local/producao e calibracao via pagina web.

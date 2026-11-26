@@ -1,5 +1,4 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import ChuvaBadge, { formatarMm, obterEstiloChuva } from '@/Components/ChuvaBadge';
 import {
     formatarNumero,
     formatarValorMetrica,
@@ -303,33 +302,6 @@ const PainelComparacao = memo(function PainelComparacao({ comparacao }) {
     );
 });
 
-const ResumoChuvaBoletim = memo(function ResumoChuvaBoletim({ periodo, chuva }) {
-    if (!chuva?.teve_chuva) return null;
-
-    const estilo = obterEstiloChuva(chuva.chuva_classificacao ?? 'fraca');
-    const ehDia = periodo === 'dia';
-
-    return (
-        <div className={`bg-white overflow-hidden shadow-sm sm:rounded-lg border-l-4 ${estilo.borda} p-5 flex flex-wrap items-center justify-between gap-3`}>
-            <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-gray-800">Precipitação registrada no período</p>
-                    {ehDia && chuva.chuva_label && <ChuvaBadge chuva={chuva} />}
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                    {ehDia
-                        ? `Pico de ${formatarMm(chuva.pico_hora_mm)} mm/h às ${chuva.pico_quando} (${chuva.horas_com_chuva}h com chuva)`
-                        : `${chuva.dias_com_chuva} ${chuva.dias_com_chuva === 1 ? 'dia' : 'dias'} com chuva${chuva.pico_dia_mm ? ` · maior volume em ${chuva.pico_dia_quando}: ${formatarMm(chuva.pico_dia_mm)} mm` : ''}`}
-                </p>
-            </div>
-            <div className="text-right shrink-0">
-                <p className="text-xs text-gray-500">Total acumulado</p>
-                <p className="text-2xl font-bold text-gray-800">{formatarMm(chuva.total_mm)} mm</p>
-            </div>
-        </div>
-    );
-});
-
 export default function Show({ estacao, periodo, dataReferencia, metrica, boletim }) {
     const [carregando, setCarregando] = useState(false);
     const metricaAtiva = metrica || boletim?.metrica || 'temperatura_ar';
@@ -506,8 +478,6 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
                                 <CardRecorde key={card.titulo} card={card} />
                             ))}
                         </div>
-
-                        <ResumoChuvaBoletim periodo={periodo} chuva={boletim.chuva} />
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             {boletim.mapaCalor && <MapaCalor mapaCalor={boletim.mapaCalor} />}
