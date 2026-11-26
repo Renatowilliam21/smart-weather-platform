@@ -80,10 +80,10 @@ function CardChuva({ chuvaAtual, ultimaLeitura }) {
     const chovendo = Boolean(chuvaAtual?.chovendo);
     const estilo = obterEstiloChuva(chuvaAtual?.chuva_classificacao);
 
-    const valorExibido = temHora
-        ? formatarMm(chuvaAtual.chuva_ultima_hora_mm)
-        : (temUltima ? formatarMm(ultimaLeitura.chuva_mm) : '—');
-    const unidadeExibida = temHora ? ' mm/h' : (temUltima ? ' mm' : '');
+    // Exibe apenas o acumulado real dos últimos 60 minutos (evita mostrar uma
+    // leitura antiga de horas/dias atrás como se estivesse chovendo agora).
+    const valorExibido = temHora ? formatarMm(chuvaAtual.chuva_ultima_hora_mm) : '—';
+    const unidadeExibida = temHora ? ' mm/h' : '';
 
     return (
         <div className="rounded-lg p-4 text-center bg-gray-50 flex flex-col justify-between min-w-0">
@@ -93,12 +93,14 @@ function CardChuva({ chuvaAtual, ultimaLeitura }) {
                     {valorExibido !== '—' && <span className="text-base font-semibold">{unidadeExibida}</span>}
                 </p>
                 <p className="text-xs mt-1 text-gray-500">
-                    {temHora ? 'Chuva (1h)' : 'Chuva'}
+                    Chuva (1h)
                 </p>
             </div>
             {(temHora || temUltima) && (
                 <div className="border-t border-gray-200 mt-2 pt-2 flex flex-col items-center gap-1">
-                    <ChuvaBadge chuva={chuvaAtual} exibirSemChuva className="max-w-full justify-center text-center" />
+                    {temHora && (
+                        <ChuvaBadge chuva={chuvaAtual} exibirSemChuva className="max-w-full justify-center text-center" />
+                    )}
                     {temUltima && (
                         <span className="text-[11px] text-gray-400">
                             Último ciclo: {formatarMm(ultimaLeitura.chuva_mm)} mm
@@ -298,7 +300,9 @@ export default function Detalhe({
                                         <CampoMetrica rotulo="TVOC" valor={ultimaLeitura.tvoc_ppb} unidade=" ppb" minMax={minMax.tvoc_ppb} />
                                         <CampoMetrica rotulo="Qualid. Ar" valor={ultimaLeitura.aqi} unidade="/5" minMax={minMax.aqi} />
                                         <CampoMetrica rotulo="Temp. Globo Negro" valor={ultimaLeitura.temp_globo_negro} unidade="°C" minMax={minMax.temp_globo_negro} />
-                                        <CardChuva chuvaAtual={chuvaAtual} ultimaLeitura={ultimaLeitura} />
+                                        {estacao.possui_pluviometro && (
+                                            <CardChuva chuvaAtual={chuvaAtual} ultimaLeitura={ultimaLeitura} />
+                                        )}
                                         <CampoMetrica rotulo="Vel. Vento" valor={ultimaLeitura.vel_vento} unidade=" km/h" />
                                     </div>
                                     <p className="text-xs text-gray-400 mt-4">

@@ -16,6 +16,7 @@ class EstacaoFactory extends Factory
             'longitude' => fake()->longitude(-42, -37),
             'token_api' => Str::random(32),
             'ativo' => true,
+            'possui_pluviometro' => true,
         ];
     }
 }

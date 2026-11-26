@@ -89,6 +89,7 @@ class DashboardController extends Controller
                     'latitude' => $estacao->latitude,
                     'longitude' => $estacao->longitude,
                     'offline' => in_array($estacao->id, $idsOffline),
+                    'possui_pluviometro' => (bool) $estacao->possui_pluviometro,
                     'chuva_atual' => $chuvaPorEstacao[$estacao->id] ?? $this->chuvaService->resumo(null),
                     'ultima_leitura' => $ultima ? [
                         'temperatura_ar' => $ultima->temperatura_ar,

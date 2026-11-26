@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Estacao;
 use App\Models\Leitura;
 use Carbon\Carbon;
 
@@ -20,6 +21,13 @@ class ChuvaService
     public const LIMITE_MODERADA_MM_H = 2.5;
     public const LIMITE_INTENSA_MM_H = 10.0;
     public const LIMITE_MUITO_INTENSA_MM_H = 50.0;
+
+    /**
+     * Teto físico plausível em um único ciclo de agregação (~10 min), baseado no
+     * recorde mundial histórico da OMM em 10 min (~126 mm). Acima disso em uma
+     * única leitura trata-se de ruído eletromagnético ou disparo espúrio no pino.
+     */
+    public const MAX_MM_POR_CICLO = 150.0;
 
     /**
      * Classifica uma taxa de precipitação em mm/h pela escala OMM / INMET.
@@ -111,19 +119,38 @@ class ChuvaService
             return [];
         }
 
-        $fim = ($referencia ?? now())->copy();
-        $inicio = $fim->copy()->subHour();
+        $idsComPluviometro = Estacao::query()->toBase()
+            ->whereIn('id', $ids)
+            ->where('possui_pluviometro', true)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
 
-        $agregados = Leitura::query()->toBase()
-            ->whereIn('estacao_id', $ids)
-            ->whereBetween('registrado_em', [$inicio, $fim])
-            ->groupBy('estacao_id')
-            ->selectRaw('estacao_id, SUM(chuva_mm) as chuva_soma, COUNT(chuva_mm) as leituras_com_chuva')
-            ->get()
-            ->keyBy('estacao_id');
+        $agregados = collect();
+        if ($idsComPluviometro !== []) {
+            $fim = ($referencia ?? now())->copy();
+            $inicio = $fim->copy()->subHour();
+
+            $agregados = Leitura::query()->toBase()
+                ->whereIn('estacao_id', $idsComPluviometro)
+                ->whereBetween('registrado_em', [$inicio, $fim])
+                ->where(function ($q) {
+                    $q->whereNull('chuva_mm')
+                        ->orWhereBetween('chuva_mm', [0, self::MAX_MM_POR_CICLO]);
+                })
+                ->groupBy('estacao_id')
+                ->selectRaw('estacao_id, SUM(chuva_mm) as chuva_soma, COUNT(chuva_mm) as leituras_com_chuva')
+                ->get()
+                ->keyBy('estacao_id');
+        }
 
         $resultado = [];
         foreach ($ids as $id) {
+            if (! in_array($id, $idsComPluviometro, true)) {
+                $resultado[$id] = $this->resumo(null);
+                continue;
+            }
+
             $linha = $agregados->get($id);
             $temDadosChuva = $linha !== null && (int) $linha->leituras_com_chuva > 0;
             $acumulado = $temDadosChuva ? round((float) $linha->chuva_soma, 2) : null;

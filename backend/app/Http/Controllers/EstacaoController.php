@@ -24,16 +24,29 @@ class EstacaoController extends Controller
         $periodo = $request->string('periodo', 'dia')->toString();
         $dataReferencia = $this->servico->resolverDataReferencia($request->string('data')->toString());
 
+        $ultimaLeitura = $estacao->leituras()->latest('registrado_em')->first();
+        if ($ultimaLeitura && ! $estacao->possui_pluviometro) {
+            $ultimaLeitura->chuva_mm = null;
+        }
+
+        $metricasDisponiveis = $estacao->possui_pluviometro
+            ? SerieMetricaService::METRICAS_PERMITIDAS
+            : array_values(array_diff(SerieMetricaService::METRICAS_PERMITIDAS, ['chuva_mm']));
+
+        if (! $estacao->possui_pluviometro && $metrica === 'chuva_mm') {
+            $metrica = 'itgu';
+        }
+
         return Inertia::render('Estacoes/Detalhe', [
             'estacao' => $estacao,
-            'ultimaLeitura' => $estacao->leituras()->latest('registrado_em')->first(),
+            'ultimaLeitura' => $ultimaLeitura,
             'chuvaAtual' => $this->chuvaService->resumoUltimaHora($estacao->id),
             'minMax' => $this->servico->minMaxMultiplasMetricas($estacao->id, [
                 'temperatura_ar', 'umidade_ar', 'itgu', 'itu', 'luminosidade',
                 'indice_uv', 'co2_ppm', 'tvoc_ppb', 'aqi', 'temp_globo_negro',
             ], now()),
             'serieMetrica' => $this->servico->serieMetricaPorPeriodo($estacao->id, $metrica, $periodo, $dataReferencia),
-            'metricasDisponiveis' => SerieMetricaService::METRICAS_PERMITIDAS,
+            'metricasDisponiveis' => $metricasDisponiveis,
             'metricaSelecionada' => $metrica,
             'periodosDisponiveis' => SerieMetricaService::PERIODOS_PERMITIDOS,
             'periodoSelecionado' => $periodo,
@@ -77,8 +90,10 @@ class EstacaoController extends Controller
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
             'ativo' => 'boolean',
+            'possui_pluviometro' => 'boolean',
         ]);
 
+        $dados['possui_pluviometro'] = $request->boolean('possui_pluviometro');
         $dados['token_api'] = Str::random(32);
 
         Estacao::create($dados);
@@ -105,6 +120,7 @@ class EstacaoController extends Controller
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
             'ativo' => 'boolean',
+            'possui_pluviometro' => 'boolean',
         ]);
 
         $estacao->update($dados);

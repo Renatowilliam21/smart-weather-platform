@@ -31,7 +31,7 @@ class BoletimService
     ];
 
     /** Incrementar sempre que a estrutura do array cacheado mudar. */
-    private const VERSAO_CACHE = 2;
+    private const VERSAO_CACHE = 3;
 
     private ChuvaService $chuvaService;
 
@@ -120,10 +120,18 @@ class BoletimService
 
     private function calcularDia(int $estacaoId, Carbon $inicio, Carbon $fim): array
     {
-        // Consulta 1: leituras do dia (~1.5k linhas) como stdClass, só com as colunas necessárias.
-        $leituras = $this->consultaPeriodo($estacaoId, $inicio, $fim)
-            ->orderBy('registrado_em')
-            ->get(array_merge(['registrado_em', 'itgu_classificacao', 'chuva_mm'], self::METRICAS));
+        // Consulta 1: leituras do dia (~1.5k linhas) como stdClass, só com as colunas necessárias,
+        // fazendo JOIN com estacoes para saber se possui_pluviometro sem consulta extra.
+        $colunasSelect = array_merge(
+            ['leituras.registrado_em', 'leituras.itgu_classificacao', 'leituras.chuva_mm', 'estacoes.possui_pluviometro'],
+            array_map(fn ($m) => "leituras.{$m}", self::METRICAS)
+        );
+        $leituras = Leitura::query()->toBase()
+            ->join('estacoes', 'estacoes.id', '=', 'leituras.estacao_id')
+            ->where('leituras.estacao_id', $estacaoId)
+            ->whereBetween('leituras.registrado_em', [$inicio, $fim])
+            ->orderBy('leituras.registrado_em')
+            ->get($colunasSelect);
 
         // Passada única O(n): soma/quantidade por hora e métrica + janela de alerta + chuva por hora.
         $horas = [];
@@ -146,7 +154,12 @@ class BoletimService
                 $horas[$hora][$metrica][1] = ($horas[$hora][$metrica][1] ?? 0) + 1;
             }
 
-            if ($leitura->chuva_mm !== null) {
+            if (
+                ! empty($leitura->possui_pluviometro)
+                && $leitura->chuva_mm !== null
+                && (float) $leitura->chuva_mm >= 0.0
+                && (float) $leitura->chuva_mm <= ChuvaService::MAX_MM_POR_CICLO
+            ) {
                 $chuvaValor = (float) $leitura->chuva_mm;
                 $chuvaPorHora[$hora] = ($chuvaPorHora[$hora] ?? 0.0) + $chuvaValor;
                 $chuvaTotal += $chuvaValor;
@@ -322,16 +335,22 @@ class BoletimService
      */
     private function agregadoPorDia(int $estacaoId, Carbon $inicio, Carbon $fim): Collection
     {
-        $colunas = ['DATE(registrado_em) as dia'];
+        $colunas = ['DATE(leituras.registrado_em) as dia'];
         foreach (self::METRICAS as $m) {
-            $colunas[] = "MAX($m) as {$m}_max, MIN($m) as {$m}_min, SUM($m) as {$m}_soma, COUNT($m) as {$m}_qtd";
+            $colunas[] = "MAX(leituras.$m) as {$m}_max, MIN(leituras.$m) as {$m}_min, SUM(leituras.$m) as {$m}_soma, COUNT(leituras.$m) as {$m}_qtd";
         }
-        $colunas[] = 'SUM(chuva_mm) as chuva_mm_soma, COUNT(chuva_mm) as chuva_mm_qtd';
-        $colunas[] = "MAX(CASE WHEN itgu_classificacao = 'perigo' THEN 1 ELSE 0 END) as teve_alerta";
+        $colunas[] = 'SUM(CASE WHEN estacoes.possui_pluviometro = ? AND leituras.chuva_mm >= 0 AND leituras.chuva_mm <= ? THEN leituras.chuva_mm ELSE NULL END) as chuva_mm_soma';
+        $colunas[] = 'COUNT(CASE WHEN estacoes.possui_pluviometro = ? AND leituras.chuva_mm >= 0 AND leituras.chuva_mm <= ? THEN leituras.chuva_mm ELSE NULL END) as chuva_mm_qtd';
+        $colunas[] = "MAX(CASE WHEN leituras.itgu_classificacao = 'perigo' THEN 1 ELSE 0 END) as teve_alerta";
 
-        return $this->consultaPeriodo($estacaoId, $inicio, $fim)
-            ->selectRaw(implode(', ', $colunas))
-            ->groupByRaw('DATE(registrado_em)')
+        $bindingsSelect = [true, ChuvaService::MAX_MM_POR_CICLO, true, ChuvaService::MAX_MM_POR_CICLO];
+
+        return Leitura::query()->toBase()
+            ->join('estacoes', 'estacoes.id', '=', 'leituras.estacao_id')
+            ->selectRaw(implode(', ', $colunas), $bindingsSelect)
+            ->where('leituras.estacao_id', $estacaoId)
+            ->whereBetween('leituras.registrado_em', [$inicio, $fim])
+            ->groupByRaw('DATE(leituras.registrado_em)')
             ->orderBy('dia')
             ->get()
             ->map(function ($d) {

@@ -174,4 +174,52 @@ class LeituraApiTest extends TestCase
 
         Mail::assertSent(\App\Mail\AlertaDisparadoMail::class, 1);
     }
+
+    public function test_ignora_chuva_mm_em_estacao_sem_pluviometro_preservando_demais_sensores(): void
+    {
+        $estacao = Estacao::factory()->create([
+            'token_api' => Str::random(32),
+            'ativo' => true,
+            'possui_pluviometro' => false,
+        ]);
+
+        $response = $this->postJson('/api/leituras', [
+            'temperatura_ar' => 31.2,
+            'umidade_ar' => 48.0,
+            'itgu' => 76.4,
+            'chuva_mm' => 9500.0, // Ruído severo de pino aberto no ESP32
+        ], [
+            'X-API-Token' => $estacao->token_api,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('leituras', [
+            'estacao_id' => $estacao->id,
+            'temperatura_ar' => 31.2,
+            'chuva_mm' => null,
+        ]);
+    }
+
+    public function test_descarta_pico_de_chuva_implausivel_em_estacao_com_pluviometro(): void
+    {
+        $estacao = Estacao::factory()->create([
+            'token_api' => Str::random(32),
+            'ativo' => true,
+            'possui_pluviometro' => true,
+        ]);
+
+        $response = $this->postJson('/api/leituras', [
+            'temperatura_ar' => 26.0,
+            'chuva_mm' => 300.0, // Acima do teto físico plausível por ciclo (150 mm)
+        ], [
+            'X-API-Token' => $estacao->token_api,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('leituras', [
+            'estacao_id' => $estacao->id,
+            'temperatura_ar' => 26.0,
+            'chuva_mm' => null,
+        ]);
+    }
 }

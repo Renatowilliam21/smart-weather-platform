@@ -195,4 +195,119 @@ class ChuvaClassificacaoTest extends TestCase
         $this->assertSame('intensa', $estacoesRefresh[$estacaoChuvosa->id]['chuva_atual']['chuva_classificacao']);
         $this->assertSame('sem_chuva', $estacoesRefresh[$estacaoSeca->id]['chuva_atual']['chuva_classificacao']);
     }
+
+    public function test_estacao_com_possui_pluviometro_falso_ignora_chuva_em_todos_os_servicos_e_telas(): void
+    {
+        $user = User::factory()->create();
+        $estacaoSemSensor = Estacao::factory()->create([
+            'ativo' => true,
+            'possui_pluviometro' => false,
+        ]);
+
+        // Mesmo que exista leitura antiga contaminada por ruído elétrico no banco:
+        Leitura::factory()->create([
+            'estacao_id' => $estacaoSemSensor->id,
+            'temperatura_ar' => 29.5,
+            'chuva_mm' => 14.00,
+            'registrado_em' => now()->subMinutes(10),
+        ]);
+
+        $resumo = $this->service->resumoUltimaHora($estacaoSemSensor->id);
+        $this->assertNull($resumo['chuva_ultima_hora_mm']);
+        $this->assertSame('sem_chuva', $resumo['chuva_classificacao']);
+        $this->assertFalse($resumo['chovendo']);
+
+        $serie = app(\App\Services\SerieMetricaService::class)->serieMetricaPorPeriodo(
+            $estacaoSemSensor->id,
+            'chuva_mm',
+            'dia',
+            now()->startOfDay()
+        );
+        $this->assertTrue(collect($serie)->every(fn ($p) => $p['valor'] === null && $p['valor_acumulado'] === null));
+
+        $boletimDia = app(\App\Services\BoletimService::class)->gerar($estacaoSemSensor->id, 'dia', now());
+        $this->assertFalse($boletimDia['chuva']['teve_chuva']);
+        $this->assertNull($boletimDia['chuva']['total_mm']);
+
+        $boletimSemana = app(\App\Services\BoletimService::class)->gerar($estacaoSemSensor->id, 'semana', now());
+        $this->assertFalse($boletimSemana['chuva']['teve_chuva']);
+        $this->assertNull($boletimSemana['chuva']['total_mm']);
+
+        $this->actingAs($user)
+            ->get(route('estacoes.show', ['estacao' => $estacaoSemSensor->id, 'metrica' => 'chuva_mm']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Estacoes/Detalhe')
+                ->where('chuvaAtual.chovendo', false)
+                ->where('chuvaAtual.chuva_ultima_hora_mm', null)
+                ->where('ultimaLeitura.chuva_mm', null)
+                ->where('metricaSelecionada', 'itgu')
+            );
+    }
+
+    public function test_serie_de_chuva_nao_projeta_acumulado_em_horas_futuras_nem_sem_leituras(): void
+    {
+        // Referência fixada no setUp(): 2026-11-19 14:30:00
+        $estacaoComChuva = Estacao::factory()->create(['ativo' => true, 'possui_pluviometro' => true]);
+        $estacaoSemDados = Estacao::factory()->create(['ativo' => true, 'possui_pluviometro' => true]);
+
+        Leitura::factory()->create([
+            'estacao_id' => $estacaoComChuva->id,
+            'chuva_mm' => 2.00,
+            'registrado_em' => Carbon::parse('2026-11-19 10:15:00'),
+        ]);
+        Leitura::factory()->create([
+            'estacao_id' => $estacaoComChuva->id,
+            'chuva_mm' => 1.50,
+            'registrado_em' => Carbon::parse('2026-11-19 14:10:00'),
+        ]);
+
+        $serie = collect(app(\App\Services\SerieMetricaService::class)->serieMetricaPorPeriodo(
+            null,
+            'chuva_mm',
+            'dia',
+            Carbon::parse('2026-11-19')
+        ));
+
+        $porHoraComChuva = $serie->where('estacao_id', $estacaoComChuva->id)->keyBy('rotulo');
+        $this->assertSame(2.0, $porHoraComChuva['10:00']['valor_acumulado']);
+        $this->assertSame(3.5, $porHoraComChuva['14:00']['valor_acumulado']);
+        $this->assertNull($porHoraComChuva['15:00']['valor_acumulado']);
+        $this->assertNull($porHoraComChuva['23:00']['valor_acumulado']);
+
+        $porHoraSemDados = $serie->where('estacao_id', $estacaoSemDados->id);
+        $this->assertTrue($porHoraSemDados->every(fn ($p) => $p['valor_acumulado'] === null));
+    }
+
+    public function test_comando_limpar_chuva_invalida_habilita_estacoes_e_limpa_ruidos(): void
+    {
+        $comSensor = Estacao::factory()->create(['nome' => 'Estação Com Pluviômetro', 'possui_pluviometro' => false]);
+        $semSensor = Estacao::factory()->create(['nome' => 'Estação Sem Pluviômetro', 'possui_pluviometro' => false]);
+
+        $leituraReal = Leitura::factory()->create([
+            'estacao_id' => $comSensor->id,
+            'chuva_mm' => 4.50,
+            'registrado_em' => now()->subMinutes(20),
+        ]);
+        $leituraSurto = Leitura::factory()->create([
+            'estacao_id' => $comSensor->id,
+            'chuva_mm' => 450.00,
+            'registrado_em' => now()->subMinutes(10),
+        ]);
+        $leituraFantasma = Leitura::factory()->create([
+            'estacao_id' => $semSensor->id,
+            'chuva_mm' => 8.00,
+            'registrado_em' => now()->subMinutes(10),
+        ]);
+
+        $this->artisan('leituras:limpar-chuva-invalida', [
+            '--habilitar' => ['Estação Com Pluviômetro'],
+        ])->assertSuccessful();
+
+        $this->assertTrue($comSensor->fresh()->possui_pluviometro);
+        $this->assertFalse($semSensor->fresh()->possui_pluviometro);
+        $this->assertSame('4.50', $leituraReal->fresh()->chuva_mm);
+        $this->assertNull($leituraSurto->fresh()->chuva_mm);
+        $this->assertNull($leituraFantasma->fresh()->chuva_mm);
+    }
 }

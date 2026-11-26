@@ -22,6 +22,13 @@ class LeituraController extends Controller
 
         $leituras = $this->leiturasFiltradas($request)
             ->paginate(25)
+            ->through(function ($leitura) {
+                if ($leitura->estacao && ! $leitura->estacao->possui_pluviometro) {
+                    $leitura->chuva_mm = null;
+                }
+
+                return $leitura;
+            })
             ->withQueryString();
 
         return Inertia::render('Leituras/Index', [
@@ -100,7 +107,7 @@ class LeituraController extends Controller
                     $leitura->co2_ppm,
                     $leitura->tvoc_ppb,
                     $leitura->aqi,
-                    $leitura->chuva_mm,
+                    ($leitura->estacao && ! $leitura->estacao->possui_pluviometro) ? null : $leitura->chuva_mm,
                     $leitura->vel_vento,
                     $leitura->dir_vento,
                     $leitura->solo_umidade,

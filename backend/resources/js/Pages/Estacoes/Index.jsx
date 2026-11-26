@@ -35,6 +35,7 @@ export default function Index({ estacoes }) {
                                 <tr>
                                     <th className="px-6 py-3">Nome</th>
                                     <th className="px-6 py-3">Localização</th>
+                                    <th className="px-6 py-3">Sensores</th>
                                     <th className="px-6 py-3">Leituras</th>
                                     <th className="px-6 py-3">Status</th>
                                     <th className="px-6 py-3 text-right">Ações</th>
@@ -49,6 +50,17 @@ export default function Index({ estacoes }) {
                                             </td>
                                             <td className="px-6 py-4 text-gray-500">
                                                 {estacao.localizacao ?? '—'}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span
+                                                    className={`px-2 py-1 rounded text-xs font-medium ${
+                                                        estacao.possui_pluviometro
+                                                            ? 'bg-sky-100 text-sky-800'
+                                                            : 'bg-gray-100 text-gray-500'
+                                                    }`}
+                                                >
+                                                    {estacao.possui_pluviometro ? 'Com pluviômetro' : 'Sem pluviômetro'}
+                                                </span>
                                             </td>
                                             <td className="px-6 py-4 text-gray-500">
                                                 {estacao.leituras_count}
@@ -82,7 +94,7 @@ export default function Index({ estacoes }) {
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan={5} className="px-6 py-8 text-center text-gray-400">
+                                        <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
                                             Nenhuma estação cadastrada.{' '}
                                             <Link href={route('estacoes.create')} className="text-blue-600 hover:underline">
                                                 Criar a primeira
