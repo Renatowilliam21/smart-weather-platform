@@ -13,7 +13,7 @@ export default function Edit({ estacao }) {
         latitude: estacao.latitude ?? '',
         longitude: estacao.longitude ?? '',
         ativo: estacao.ativo ?? true,
-        possui_pluviometro: Boolean(estacao.possui_pluviometro),
+        possui_pluviometro: estacao.possui_pluviometro ?? true,
     });
 
     const [tokenVisivel, setTokenVisivel] = useState(false);

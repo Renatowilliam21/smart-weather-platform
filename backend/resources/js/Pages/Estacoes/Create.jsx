@@ -12,7 +12,7 @@ export default function Create() {
         latitude: '',
         longitude: '',
         ativo: true,
-        possui_pluviometro: false,
+        possui_pluviometro: true,
     });
 
     const submit = (e) => {

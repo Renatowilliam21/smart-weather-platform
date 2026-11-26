@@ -93,7 +93,9 @@ class EstacaoController extends Controller
             'possui_pluviometro' => 'boolean',
         ]);
 
-        $dados['possui_pluviometro'] = $request->boolean('possui_pluviometro');
+        $dados['possui_pluviometro'] = $request->has('possui_pluviometro')
+            ? $request->boolean('possui_pluviometro')
+            : true;
         $dados['token_api'] = Str::random(32);
 
         Estacao::create($dados);

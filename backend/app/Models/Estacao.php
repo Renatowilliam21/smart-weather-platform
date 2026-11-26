@@ -15,6 +15,11 @@ class Estacao extends Model
 
     protected $table = 'estacoes';
 
+    protected $attributes = [
+        'ativo' => true,
+        'possui_pluviometro' => true,
+    ];
+
     protected $fillable = [
         'nome',
         'localizacao',

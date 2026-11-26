@@ -31,7 +31,7 @@ class BoletimService
     ];
 
     /** Incrementar sempre que a estrutura do array cacheado mudar. */
-    private const VERSAO_CACHE = 3;
+    private const VERSAO_CACHE = 4;
 
     private ChuvaService $chuvaService;
 

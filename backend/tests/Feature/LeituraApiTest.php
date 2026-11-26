@@ -222,4 +222,56 @@ class LeituraApiTest extends TestCase
             'chuva_mm' => null,
         ]);
     }
+
+    public function test_ignora_reenvio_duplicado_com_mesmo_registrado_em_sem_multiplicar_chuva(): void
+    {
+        $estacao = Estacao::factory()->create([
+            'token_api' => Str::random(32),
+            'ativo' => true,
+            'possui_pluviometro' => true,
+        ]);
+
+        $payload = [
+            'temperatura_ar' => 24.8,
+            'umidade_ar' => 82.0,
+            'chuva_mm' => 1.5,
+            'tipo_agregacao' => 'agregado',
+            'registrado_em' => '2026-11-26 15:20:00',
+        ];
+
+        $this->postJson('/api/leituras', $payload, ['X-API-Token' => $estacao->token_api])
+            ->assertStatus(201);
+
+        $this->postJson('/api/leituras', $payload, ['X-API-Token' => $estacao->token_api])
+            ->assertStatus(200);
+
+        $this->assertDatabaseCount('leituras', 1);
+    }
+
+    public function test_ignora_reenvio_agregado_identico_sem_rtc_dentro_da_janela(): void
+    {
+        $estacao = Estacao::factory()->create([
+            'token_api' => Str::random(32),
+            'ativo' => true,
+            'possui_pluviometro' => true,
+        ]);
+
+        $payload = [
+            'temperatura_ar' => 25.4,
+            'umidade_ar' => 79.1,
+            'temp_globo_negro' => 26.0,
+            'itgu' => 74.2,
+            'chuva_mm' => 0.5,
+            'vel_vento' => 4.8,
+            'tipo_agregacao' => 'agregado',
+        ];
+
+        $this->postJson('/api/leituras', $payload, ['X-API-Token' => $estacao->token_api])
+            ->assertStatus(201);
+
+        $this->postJson('/api/leituras', $payload, ['X-API-Token' => $estacao->token_api])
+            ->assertStatus(200);
+
+        $this->assertDatabaseCount('leituras', 1);
+    }
 }

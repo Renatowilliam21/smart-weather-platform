@@ -195,8 +195,9 @@ sensor de ambiente dedicado, esses dois pares normalmente diferem.
   interrupcao com debounce), anemometro (vel_vento, GPIO27, mesma tecnica),
   e sensor VEML7700 (luminosidade em lux via I2C, endereco 0x10, prioridade
   sobre o LDR analogico quando presente).
-- v2.11: corrige pulsos falsos de chuva em estacoes sem pluviometro ou com
-  interferencia eletrica — pluviometro passa a vir desativado por padrao
-  (GPIO26 em pull-down interno e `chuva_mm` omitido do JSON), podendo ser
-  ativado e calibrado (mm/pulso) pela pagina web local do ESP32; alem disso,
-  a interrupcao valida largura de pulso real (3ms a 2s) com debounce de 400ms.
+- v2.11: corrige pulsos falsos e duplicacao de chuva — validacao multi-amostra
+  via tarefa FreeRTOS (exige 8ms continuos em LOW + reabertura para HIGH em ate
+  1,5s + debounce de 500ms, eliminando ruido 60Hz, RF do Wi-Fi, pino aberto e
+  fio em curto), rastreamento independente de envio local vs. producao (evita
+  reenviar o mesmo `chuva_mm` quando so um servidor falha) e opcao na pagina web
+  local do ESP32 para calibrar `mm/pulso` ou desativar o pluviometro.

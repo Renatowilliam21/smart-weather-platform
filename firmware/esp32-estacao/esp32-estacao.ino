@@ -214,9 +214,14 @@ struct RegistroMeteorologico {
     float ITGU, ITU;
     float indiceCalor;
     float chuvaMm, velVento;
-    bool enviado;
+    uint8_t enviado; // Bitmask: 0=pendente, 0x01=legado completo, 0x02=local ok, 0x04=prod ok
     uint32_t checksum;
 };
+
+const uint8_t ENVIO_LEGADO_COMPLETO = 0x01;
+const uint8_t ENVIO_LOCAL_OK = 0x02;
+const uint8_t ENVIO_PRODUCAO_OK = 0x04;
+const uint8_t ENVIO_TODOS_OK = ENVIO_LOCAL_OK | ENVIO_PRODUCAO_OK;
 
 const int TAM_REGISTRO = sizeof(RegistroMeteorologico);
 const int ENDERECO_CONTROLE = 0;
@@ -224,21 +229,19 @@ const int ENDERECO_DADOS = 32;
 const int CAPACIDADE_EEPROM_BYTES = 4096;
 const int MAX_REGISTROS = (CAPACIDADE_EEPROM_BYTES - ENDERECO_DADOS) / TAM_REGISTRO;
 
-// Pluviometro de bascula: desativado por padrao para evitar pulsos fantasmas
-// (ruido de 60Hz / RF do Wi-Fi no GPIO26 em estacoes sem o sensor fisico).
-// Habilite na pagina web do ESP32 apenas nas estacoes que possuem pluviometro.
+// Pluviometro de bascula: ativo por padrao, com validacao multi-amostra via
+// FreeRTOS (exige 4 leituras seguidas em LOW por 8ms + retorno a HIGH em ate
+// 1.5s + debounce de 500ms), eliminando pulsos fantasmas de RF Wi-Fi, rede
+// 60Hz, pino aberto ou cabo em curto, sem perder basculamentos reais.
 const float MM_POR_PULSO_CHUVA_PADRAO = 0.5;
 const float CHUVA_MAX_MM_POR_CICLO = 150.0;
-const unsigned long PULSO_MIN_CHUVA_US = 3000;      // >= 3ms fechado (descarta spikes de RF/EMI)
-const unsigned long PULSO_MAX_CHUVA_US = 2000000;   // <= 2s fechado (descarta fio em curto com GND)
-const unsigned long DEBOUNCE_CHUVA_US = 400000;     // >= 400ms entre basculamentos (elimina 60Hz e repique)
+const unsigned long DEBOUNCE_CHUVA_MS = 500;
 
-bool pluviometroAtivo = false;
+bool pluviometroAtivo = true;
 float mmPorPulsoChuva = MM_POR_PULSO_CHUVA_PADRAO;
 volatile unsigned long pulsosChuvaContador = 0;
-volatile unsigned long inicioPulsoChuvaUs = 0;
-volatile unsigned long ultimoPulsoValidoChuvaUs = 0;
-volatile bool pulsoChuvaEmAndamento = false;
+volatile bool bordaDescidaChuvaDetectada = false;
+volatile bool validacaoChuvaEmCurso = false;
 
 // Anemometro: formula padrao (km/h = pulsos/segundo x 2.4) usada em
 // anemometros de copo hobby comuns. TODO: recalibrar com instrumento de
@@ -249,24 +252,66 @@ volatile unsigned long pulsosVentoContador = 0;
 volatile unsigned long ultimoPulsoVentoMs = 0;
 
 void IRAM_ATTR isrPluviometro() {
-    if (!pluviometroAtivo) return;
-    unsigned long agoraUs = micros();
-    int nivel = digitalRead(PLUVIOMETRO_PIN);
+    if (pluviometroAtivo && !validacaoChuvaEmCurso) {
+        bordaDescidaChuvaDetectada = true;
+    }
+}
 
-    if (nivel == LOW) {
-        if (!pulsoChuvaEmAndamento) {
-            inicioPulsoChuvaUs = agoraUs;
-            pulsoChuvaEmAndamento = true;
+void tarefaPluviometro(void *pvParameters) {
+    unsigned long ultimoPulsoConfirmadoMs = 0;
+    bool jaConfirmouAlgum = false;
+
+    for (;;) {
+        if (!pluviometroAtivo || !bordaDescidaChuvaDetectada) {
+            bordaDescidaChuvaDetectada = false;
+            vTaskDelay(pdMS_TO_TICKS(5));
+            continue;
         }
-    } else if (pulsoChuvaEmAndamento) {
-        unsigned long duracaoUs = agoraUs - inicioPulsoChuvaUs;
-        pulsoChuvaEmAndamento = false;
-        if (duracaoUs >= PULSO_MIN_CHUVA_US &&
-            duracaoUs <= PULSO_MAX_CHUVA_US &&
-            (ultimoPulsoValidoChuvaUs == 0 || (agoraUs - ultimoPulsoValidoChuvaUs) >= DEBOUNCE_CHUVA_US)) {
-            pulsosChuvaContador++;
-            ultimoPulsoValidoChuvaUs = agoraUs;
+
+        validacaoChuvaEmCurso = true;
+        bordaDescidaChuvaDetectada = false;
+
+        unsigned long agoraMs = millis();
+        if (jaConfirmouAlgum && (agoraMs - ultimoPulsoConfirmadoMs) < DEBOUNCE_CHUVA_MS) {
+            validacaoChuvaEmCurso = false;
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
         }
+
+        // Etapa 1: Confirma fechamento real e continuo do reed switch (LOW por 8ms).
+        // Glitches de Wi-Fi/RF, interferencia 60Hz e pino aberto falham imediatamente.
+        bool contatoSustentado = true;
+        for (int i = 0; i < 4; i++) {
+            vTaskDelay(pdMS_TO_TICKS(2));
+            if (digitalRead(PLUVIOMETRO_PIN) != LOW) {
+                contatoSustentado = false;
+                break;
+            }
+        }
+
+        if (contatoSustentado) {
+            // Etapa 2: Aguarda a bascula completar o curso e reabrir o reed switch (HIGH)
+            // em ate 1.5s. Evita contar pulsos caso o fio esteja em curto fixo com GND.
+            bool reabriuContato = false;
+            for (int i = 0; i < 300; i++) {
+                vTaskDelay(pdMS_TO_TICKS(5));
+                if (digitalRead(PLUVIOMETRO_PIN) == HIGH) {
+                    reabriuContato = true;
+                    break;
+                }
+            }
+
+            if (reabriuContato) {
+                noInterrupts();
+                pulsosChuvaContador++;
+                interrupts();
+                ultimoPulsoConfirmadoMs = millis();
+                jaConfirmouAlgum = true;
+            }
+        }
+
+        bordaDescidaChuvaDetectada = false;
+        validacaoChuvaEmCurso = false;
     }
 }
 
@@ -368,7 +413,13 @@ void setup() {
 
     carregarConfiguracao();
     configurarWiFi();
+    xTaskCreatePinnedToCore(tarefaPluviometro, "Pluviometro", 2048, NULL, 2, NULL, 1);
+    aplicarConfigPluviometro();
     configurarServidorAdmin();
+
+    // Inicia a janela de agregacao a partir do fim do boot para nao disparar
+    // um ciclo prematuro no segundo zero com ruidos de inicializacao.
+    ultimaAgregacao = millis();
 
     Serial.println("Sistema pronto!");
 }
@@ -951,7 +1002,7 @@ void gravarRegistroPendente() {
     float segundosCiclo = INTERVALO_AGREGACAO_MS / 1000.0;
     registro.velVento = (pulsosVento / segundosCiclo) * CONSTANTE_ANEMOMETRO;
 
-    registro.enviado = false;
+    registro.enviado = 0;
 
     if (eepromDisponivel) {
         int indice = proximoRegistro;
@@ -1090,7 +1141,7 @@ void tentarDrenarFila() {
             return;
         }
 
-        if (registro.enviado) {
+        if (registro.enviado == ENVIO_LEGADO_COMPLETO || (registro.enviado & ENVIO_TODOS_OK) == ENVIO_TODOS_OK) {
             totalRegistros--;
             salvarControleEEPROM();
             return;
@@ -1099,17 +1150,26 @@ void tentarDrenarFila() {
         String json = montarJSON(registro);
         Serial.println("Tentando enviar registro pendente da fila (EEPROM)...");
 
-        bool sucessoLocal = enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), json, ultimoStatusLocal);
-        bool sucessoProducao = enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), json, ultimoStatusProducao);
+        uint8_t statusAnterior = registro.enviado;
+        bool sucessoLocal = (registro.enviado & ENVIO_LOCAL_OK) != 0
+            || enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), json, ultimoStatusLocal);
+        if (sucessoLocal) registro.enviado |= ENVIO_LOCAL_OK;
 
-        if (sucessoLocal && sucessoProducao) {
-            registro.enviado = true;
+        bool sucessoProducao = (registro.enviado & ENVIO_PRODUCAO_OK) != 0
+            || enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), json, ultimoStatusProducao);
+        if (sucessoProducao) registro.enviado |= ENVIO_PRODUCAO_OK;
+
+        if ((registro.enviado & ENVIO_TODOS_OK) == ENVIO_TODOS_OK) {
+            registro.enviado = ENVIO_LEGADO_COMPLETO;
             gravarRegistro(indiceMaisAntigo, registro);
             totalRegistros--;
             salvarControleEEPROM();
             Serial.printf("Registro enviado com sucesso. Restam %d na fila.\n", totalRegistros);
         } else {
-            Serial.println("Falha no envio. Registro permanece na fila para nova tentativa.");
+            if (registro.enviado != statusAnterior) {
+                gravarRegistro(indiceMaisAntigo, registro);
+            }
+            Serial.println("Falha parcial/total no envio. Apenas o destino pendente sera retentado.");
         }
     } else {
         if (!registroPendenteRAMValido) return;
@@ -1117,14 +1177,19 @@ void tentarDrenarFila() {
         String json = montarJSON(registroPendenteRAM);
         Serial.println("Tentando enviar registro pendente do buffer RAM...");
 
-        bool sucessoLocal = enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), json, ultimoStatusLocal);
-        bool sucessoProducao = enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), json, ultimoStatusProducao);
+        bool sucessoLocal = (registroPendenteRAM.enviado & ENVIO_LOCAL_OK) != 0
+            || enviarParaUmServidor(servidorUrlLocal.c_str(), tokenLocal.c_str(), json, ultimoStatusLocal);
+        if (sucessoLocal) registroPendenteRAM.enviado |= ENVIO_LOCAL_OK;
 
-        if (sucessoLocal && sucessoProducao) {
+        bool sucessoProducao = (registroPendenteRAM.enviado & ENVIO_PRODUCAO_OK) != 0
+            || enviarParaUmServidor(servidorUrlProducao.c_str(), tokenProducao.c_str(), json, ultimoStatusProducao);
+        if (sucessoProducao) registroPendenteRAM.enviado |= ENVIO_PRODUCAO_OK;
+
+        if ((registroPendenteRAM.enviado & ENVIO_TODOS_OK) == ENVIO_TODOS_OK) {
             registroPendenteRAMValido = false;
             Serial.println("Registro (RAM) enviado com sucesso.");
         } else {
-            Serial.println("Falha no envio. Registro (RAM) permanece para nova tentativa.");
+            Serial.println("Falha parcial/total no envio (RAM). Apenas o destino pendente sera retentado.");
         }
     }
 }
@@ -1136,14 +1201,13 @@ void aplicarConfigPluviometro() {
     detachInterrupt(digitalPinToInterrupt(PLUVIOMETRO_PIN));
     noInterrupts();
     pulsosChuvaContador = 0;
-    pulsoChuvaEmAndamento = false;
-    inicioPulsoChuvaUs = 0;
-    ultimoPulsoValidoChuvaUs = 0;
+    bordaDescidaChuvaDetectada = false;
+    validacaoChuvaEmCurso = false;
     interrupts();
 
     if (pluviometroAtivo) {
         pinMode(PLUVIOMETRO_PIN, INPUT_PULLUP);
-        attachInterrupt(digitalPinToInterrupt(PLUVIOMETRO_PIN), isrPluviometro, CHANGE);
+        attachInterrupt(digitalPinToInterrupt(PLUVIOMETRO_PIN), isrPluviometro, FALLING);
         Serial.printf("Pluviometro ATIVO no GPIO %d (%.2f mm/pulso).\n", PLUVIOMETRO_PIN, mmPorPulsoChuva);
     } else {
         pinMode(PLUVIOMETRO_PIN, INPUT_PULLDOWN);
@@ -1157,12 +1221,11 @@ void carregarConfiguracao() {
     tokenLocal = preferencias.getString("token_local", "");
     servidorUrlProducao = preferencias.getString("server_prod", "");
     tokenProducao = preferencias.getString("token_prod", "");
-    pluviometroAtivo = preferencias.getBool("pluv_ativo", false);
+    pluviometroAtivo = preferencias.getBool("pluv_ativo", true);
     mmPorPulsoChuva = preferencias.getFloat("mm_pulso", MM_POR_PULSO_CHUVA_PADRAO);
     if (isnan(mmPorPulsoChuva) || mmPorPulsoChuva < 0.05 || mmPorPulsoChuva > 5.0) {
         mmPorPulsoChuva = MM_POR_PULSO_CHUVA_PADRAO;
     }
-    aplicarConfigPluviometro();
 }
 
 void configurarWiFi() {
