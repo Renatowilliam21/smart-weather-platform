@@ -1,3 +1,5 @@
+import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+
 export const METRICAS = {
     itgu: { rotulo: 'ITGU', unidade: '°C' },
     itu: { rotulo: 'ITU', unidade: '°C' },
@@ -15,15 +17,16 @@ export const METRICAS = {
 
 export function SeletorMetrica({ metricasDisponiveis, metricaSelecionada, onChange }) {
     return (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
             {metricasDisponiveis.map((chave) => (
                 <button
                     key={chave}
+                    type="button"
                     onClick={() => onChange(chave)}
-                    className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                         metricaSelecionada === chave
-                            ? 'bg-gray-800 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs'
+                            : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
                     }`}
                 >
                     {METRICAS[chave]?.rotulo ?? chave}
@@ -33,24 +36,31 @@ export function SeletorMetrica({ metricasDisponiveis, metricaSelecionada, onChan
     );
 }
 
-const ROTULOS_PERIODO = { dia: 'Dia', mes: 'Mês', ano: 'Ano' };
+const ROTULOS_PERIODO = { dia: 'Dia', semana: 'Semana', mes: 'Mês', ano: 'Ano' };
 
-export function SeletorPeriodo({ periodosDisponiveis, periodoSelecionado, onChange }) {
+export function SeletorPeriodo({ periodosDisponiveis, periodoSelecionado, onChange, disabled = false }) {
     return (
-        <div className="flex gap-1 bg-gray-100 rounded p-1">
-            {periodosDisponiveis.map((chave) => (
-                <button
-                    key={chave}
-                    onClick={() => onChange(chave)}
-                    className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                        periodoSelecionado === chave
-                            ? 'bg-white text-gray-800 shadow-sm'
-                            : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                >
-                    {ROTULOS_PERIODO[chave] ?? chave}
-                </button>
-            ))}
+        <div className="inline-flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            {periodosDisponiveis.map((item) => {
+                const chave = typeof item === 'string' ? item : item.valor;
+                const rotulo = typeof item === 'string' ? (ROTULOS_PERIODO[chave] ?? chave) : item.rotulo;
+
+                return (
+                    <button
+                        key={chave}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => onChange(chave)}
+                        className={`px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors disabled:cursor-wait ${
+                            periodoSelecionado === chave
+                                ? 'bg-gray-800 text-white shadow-sm'
+                                : 'text-gray-600 hover:text-gray-900 hover:bg-white/60'
+                        }`}
+                    >
+                        {rotulo}
+                    </button>
+                );
+            })}
         </div>
     );
 }
@@ -58,76 +68,123 @@ export function SeletorPeriodo({ periodosDisponiveis, periodoSelecionado, onChan
 export function ajustarData(dataISO, periodo, direcao) {
     const d = new Date(dataISO + 'T12:00:00');
     if (periodo === 'mes') {
-        d.setDate(1); // Evita bug do JS em meses com 31 dias (ex: 31/Out - 1 mes = 31/Set = 01/Out)
+        d.setDate(1);
         d.setMonth(d.getMonth() + direcao);
     } else if (periodo === 'ano') {
         d.setDate(1);
         d.setFullYear(d.getFullYear() + direcao);
+    } else if (periodo === 'semana') {
+        d.setDate(d.getDate() + direcao * 7);
     } else {
         d.setDate(d.getDate() + direcao);
     }
     return d.toISOString().split('T')[0];
 }
 
-export function NavegacaoPeriodo({ periodo, dataReferencia, navegacaoPeriodo, onNavegar }) {
+export function NavegacaoPeriodo({ periodo, dataReferencia, navegacaoPeriodo, onNavegar, disabled = false }) {
     const hojeISO = new Date().toISOString().split('T')[0];
     const anoAtual = new Date().getFullYear();
     const anosDisponiveis = [anoAtual, anoAtual - 1, anoAtual - 2, anoAtual - 3];
+    const podeAvancar = navegacaoPeriodo?.pode_avancar ?? true;
 
     return (
-        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5 flex-wrap">
-            <button
-                onClick={() => onNavegar(ajustarData(dataReferencia, periodo, -1))}
-                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600"
-                aria-label="Período anterior"
-            >
-                ‹
-            </button>
-
-            <span className="text-sm font-medium text-gray-700 min-w-[160px] text-center">
-                {navegacaoPeriodo?.rotulo}
-            </span>
-
-            <button
-                onClick={() => navegacaoPeriodo?.pode_avancar && onNavegar(ajustarData(dataReferencia, periodo, 1))}
-                disabled={!navegacaoPeriodo?.pode_avancar}
-                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-gray-600 disabled:opacity-30 disabled:hover:bg-transparent"
-                aria-label="Próximo período"
-            >
-                ›
-            </button>
-
-            <span className="w-px h-5 bg-gray-200 mx-1" />
-
-            {periodo === 'dia' && (
-                <input
-                    type="date"
-                    value={dataReferencia}
-                    max={hojeISO}
-                    onChange={(e) => e.target.value && onNavegar(e.target.value)}
-                    className="text-sm border-gray-300 rounded py-1"
-                />
-            )}
-            {periodo === 'mes' && (
-                <input
-                    type="month"
-                    value={dataReferencia.slice(0, 7)}
-                    max={hojeISO.slice(0, 7)}
-                    onChange={(e) => e.target.value && onNavegar(`${e.target.value}-01`)}
-                    className="text-sm border-gray-300 rounded py-1"
-                />
-            )}
-            {periodo === 'ano' && (
-                <select
-                    value={dataReferencia.slice(0, 4)}
-                    onChange={(e) => onNavegar(`${e.target.value}-01-01`)}
-                    className="text-sm border-gray-300 rounded py-1"
+        <div className="flex items-center gap-2 flex-wrap">
+            <div className="inline-flex items-center gap-1">
+                <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onNavegar(ajustarData(dataReferencia, periodo, -1))}
+                    className="w-8 h-8 flex items-center justify-center rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600 transition-colors disabled:opacity-40"
+                    aria-label="Período anterior"
                 >
-                    {anosDisponiveis.map((ano) => (
-                        <option key={ano} value={ano}>{ano}</option>
-                    ))}
-                </select>
-            )}
+                    <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                </button>
+
+                <span className="text-sm font-medium text-gray-700 min-w-[165px] px-2 text-center">
+                    {navegacaoPeriodo?.rotulo}
+                </span>
+
+                <button
+                    type="button"
+                    onClick={() => podeAvancar && onNavegar(ajustarData(dataReferencia, periodo, 1))}
+                    disabled={disabled || !podeAvancar}
+                    className="w-8 h-8 flex items-center justify-center rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-600 transition-colors disabled:opacity-30 disabled:hover:bg-gray-50"
+                    aria-label="Próximo período"
+                >
+                    <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+            </div>
+
+            <span className="hidden sm:inline-block w-px h-5 bg-gray-200 mx-1" aria-hidden="true" />
+
+            <div className="inline-flex items-center gap-1.5">
+                <Calendar className="h-4 w-4 text-gray-400 shrink-0" aria-hidden="true" />
+                {(periodo === 'dia' || periodo === 'semana') && (
+                    <input
+                        type="date"
+                        value={dataReferencia}
+                        max={hojeISO}
+                        disabled={disabled}
+                        onChange={(e) => e.target.value && onNavegar(e.target.value)}
+                        aria-label="Selecionar data no calendário"
+                        className="text-sm border-gray-300 rounded-md py-1 focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                )}
+                {periodo === 'mes' && (
+                    <input
+                        type="month"
+                        value={dataReferencia.slice(0, 7)}
+                        max={hojeISO.slice(0, 7)}
+                        disabled={disabled}
+                        onChange={(e) => e.target.value && onNavegar(`${e.target.value}-01`)}
+                        aria-label="Selecionar mês no calendário"
+                        className="text-sm border-gray-300 rounded-md py-1 focus:border-indigo-500 focus:ring-indigo-500"
+                    />
+                )}
+                {periodo === 'ano' && (
+                    <select
+                        value={dataReferencia.slice(0, 4)}
+                        disabled={disabled}
+                        onChange={(e) => onNavegar(`${e.target.value}-01-01`)}
+                        aria-label="Selecionar ano"
+                        className="text-sm border-gray-300 rounded-md py-1 focus:border-indigo-500 focus:ring-indigo-500"
+                    >
+                        {anosDisponiveis.map((ano) => (
+                            <option key={ano} value={ano}>
+                                {ano}
+                            </option>
+                        ))}
+                    </select>
+                )}
+            </div>
+        </div>
+    );
+}
+
+export function BarraFiltroTemporal({
+    periodo,
+    periodosDisponiveis,
+    dataReferencia,
+    navegacaoPeriodo,
+    onNavegarData,
+    onMudarPeriodo,
+    disabled = false,
+}) {
+    return (
+        <div className="bg-white border border-gray-200 shadow-xs sm:rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+            <NavegacaoPeriodo
+                periodo={periodo}
+                dataReferencia={dataReferencia}
+                navegacaoPeriodo={navegacaoPeriodo}
+                onNavegar={onNavegarData}
+                disabled={disabled}
+            />
+            <SeletorPeriodo
+                periodosDisponiveis={periodosDisponiveis}
+                periodoSelecionado={periodo}
+                onChange={onMudarPeriodo}
+                disabled={disabled}
+            />
         </div>
     );
 }

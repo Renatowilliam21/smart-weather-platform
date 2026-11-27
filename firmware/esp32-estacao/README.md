@@ -7,21 +7,32 @@ necessário editar o código-fonte para configurar WiFi, servidores ou tokens.
 
 ## Sensores suportados
 
-| Sensor | Tipo | Pino | Status |
+| Sensor / Módulo | Tipo / Barramento | Pinos no ESP32 | Função / Observação |
 |---|---|---|---|
-| DHT22 (globo negro) | Digital | GPIO 4 | Instalado |
-| BME280 (ambiente) | I2C | GPIO 21 (SDA) / GPIO 22 (SCL) | Instalado |
-| GUVA-S12SD (UV) | Analógico | GPIO 34 (ADC1) | Instalado |
-| LDR (luminosidade) | Analógico | GPIO 35 (ADC1) | Instalado |
+| **AHT10 (globo negro)** | I2C secundário (`Wire1`, 50 kHz) | **GPIO 25 (SDA) / GPIO 33 (SCL)** | Temp. e umidade do globo negro → ITGU (prioridade automática nas novas estações; isolado do `Wire` principal para não travar o BMP280; `SCL` no 33 para manter o 26 livre p/ pluviômetro) |
+| **DHT22 (globo negro)** | Digital | **GPIO 4** | Temp. e umidade do globo negro → ITGU (fallback automático caso o AHT10 não seja detectado no `Wire1`) |
+| **BMP280 / BME280** | I2C principal (`Wire`) | GPIO 21 (SDA) / GPIO 22 (SCL) | Pressão e altitude (`0x76`/`0x77`, identificados por chip ID `0x58`/`0x60`; BME280 também mede temp./umidade do ar) |
+| **SHT41 / AHT10-AHT21 (ambiente)** | I2C principal (`Wire`) | GPIO 21 (SDA) / GPIO 22 (SCL) | Temperatura e umidade do ar → ITU (prioridade: `SHT41 > BME280 > AHT10/21 > Globo Negro`) |
+| **ENS160** | I2C principal (`Wire`) | GPIO 21 (SDA) / GPIO 22 (SCL) | Qualidade do ar: CO2eq, TVOC e AQI (`0x52` ou `0x53`) |
+| **LDR** | Analógico (ADC1) | GPIO 34 | Luminosidade (0–100%, fallback padrão) |
+| **VEML7700** | I2C principal (`Wire`) | GPIO 21 (SDA) / GPIO 22 (SCL) | Luminosidade em lux (`0x10`, opcional) |
+| **GUVA-S12SD** | Analógico (ADC1) | GPIO 35 | Índice UV |
+| **Pluviômetro de báscula** | Pulso digital (`FALLING`) | GPIO 26 | Volume de chuva (`chuva_mm`) |
+| **Anemômetro** | Pulso digital (`FALLING`) | GPIO 27 | Velocidade do vento (`vel_vento`) |
+| **RTC DS3231 / EEPROM AT24C32** | I2C principal (`Wire`) | GPIO 21 (SDA) / GPIO 22 (SCL) | Opcionais: timestamp real (`0x68`) e fila offline de ~90 registros (`0x50`) |
 
 ## Bibliotecas necessárias (Arduino IDE)
 
 - WiFiManager (tzapu)
+- Adafruit AHTX0 (requer **Adafruit BusIO** e **Adafruit Unified Sensor**)
 - DHT sensor library (Adafruit)
-- Adafruit Unified Sensor
+- Adafruit BMP280 Library
 - Adafruit BME280 Library
-- Adafruit BusIO
+- Adafruit SHT4x Library
+- ENS160 - Adafruit Fork (`ScioSense_ENS160.h`)
+- RTClib (Adafruit)
 - ArduinoJson (v6.x ou v7.x)
+- Adafruit VEML7700 Library *(opcional — compilada automaticamente apenas se instalada)*
 - WebServer (já incluída no core do ESP32, não precisa instalar)
 
 ## Como configurar (sem editar código)
@@ -56,14 +67,9 @@ reinicia o ESP32, reabrindo o portal de conexão.
 
 ## Coleta e agregação
 
-- Coleta interna: a cada 1 minuto (não transmite, só acumula na memória)
-- Envio agregado: a cada 10 minutos, calcula a média das amostras acumuladas e
-  envia uma única leitura, marcada como tipo_agregacao: "agregado"
-- O intervalo de 10 minutos foi escolhido para manter o Render (hospedagem de
-  produção, plano gratuito) sempre ativo — o plano hiberna após 15 minutos sem
-  requisições
-- Se o envio falhar, as amostras não são descartadas — continuam acumulando até
-  o próximo ciclo funcionar
+- Coleta interna: a cada **15 segundos** (`INTERVALO_COLETA_MS = 15000` — acumula 4 amostras por minuto na memória RAM para filtrar ruídos pontuais)
+- Envio agregado ao sistema web: a cada **1 minuto** (`INTERVALO_AGREGACAO_MS = 60000`), calcula a média das amostras acumuladas no minuto e envia imediatamente uma leitura consolidada (`tipo_agregacao: "agregado"`)
+- Retentativa em caso de falha: se a rede oscilar, o registro permanece na fila (EEPROM ou RAM) e uma nova tentativa é feita a cada **15 segundos** (`INTERVALO_TENTATIVA_ENVIO_MS = 15000`) até obter `HTTP 201`
 
 ## Envio duplo (local + produção)
 
@@ -139,8 +145,8 @@ sensor de ambiente dedicado, esses dois pares normalmente diferem.
 | Campo | Aparece quando... |
 |---|---|
 | `pressao` / `altitude` | BME280 ou BMP280 detectado e funcionando |
-| `itgu` / `itgu_classificacao` | DHT22 (globo negro) leu com sucesso |
-| `itu` / `itu_classificacao` | Algum sensor de ambiente leu com sucesso |
+| `itgu` / `itgu_classificacao` | Sensor do globo negro — AHT10 (`Wire1`) ou DHT22 (`GPIO 4`) — leu com sucesso |
+| `itu` / `itu_classificacao` | Algum sensor de ambiente (ou fallback do globo negro) leu com sucesso |
 | `registrado_em` | Só se o RTC estiver presente (`YYYY-MM-DD HH:MM:SS`); senão, o servidor usa o horário de recebimento |
 
 ### Resposta de sucesso
@@ -195,3 +201,12 @@ sensor de ambiente dedicado, esses dois pares normalmente diferem.
   interrupcao com debounce), anemometro (vel_vento, GPIO27, mesma tecnica),
   e sensor VEML7700 (luminosidade em lux via I2C, endereco 0x10, prioridade
   sobre o LDR analogico quando presente).
+- v2.11: adiciona suporte ao sensor AHT10 dentro do globo negro isolado no
+  segundo barramento I2C por hardware do ESP32 (`Wire1`: `SDA = GPIO 25`,
+  `SCL = GPIO 33`, clock reduzido para `50 kHz` para maior estabilidade em
+  cabos mais compridos e para evitar travamento do BMP280 no `Wire` padrao
+  dos pinos 21/22). Usa o `GPIO 33` no `SCL` para manter o `GPIO 26` livre
+  para o pluviometro. Mantem deteccao automatica no `setup()` com fallback
+  transparente para o DHT22 (`GPIO 4`) nas placas antigas, auto-recuperacao
+  do `Wire1` em caso de ruido eletrico e inclusao condicional da biblioteca
+  `Adafruit_VEML7700.h` (`__has_include`).

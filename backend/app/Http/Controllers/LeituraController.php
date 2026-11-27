@@ -121,7 +121,7 @@ class LeituraController extends Controller
 
     private function leiturasFiltradas(Request $request)
     {
-        return Leitura::with('estacao')
+        return Leitura::with('estacao:id,nome')
             ->when($request->filled('estacao_id'), function ($query) use ($request) {
                 $query->where('estacao_id', $request->input('estacao_id'));
             })

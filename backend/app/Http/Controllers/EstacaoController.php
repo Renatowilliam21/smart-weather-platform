@@ -21,20 +21,20 @@ class EstacaoController extends Controller
         $dataReferencia = $this->servico->resolverDataReferencia($request->string('data')->toString());
 
         return Inertia::render('Estacoes/Detalhe', [
-            'estacao' => $estacao,
-            'ultimaLeitura' => $estacao->leituras()->latest('registrado_em')->first(),
-            'minMax' => $this->servico->minMaxMultiplasMetricas($estacao->id, [
+            'estacao' => fn () => $estacao,
+            'ultimaLeitura' => fn () => $estacao->leituras()->latest('registrado_em')->first(),
+            'minMax' => fn () => $this->servico->minMaxMultiplasMetricas($estacao->id, [
                 'temperatura_ar', 'umidade_ar', 'itgu', 'itu', 'luminosidade',
                 'indice_uv', 'co2_ppm', 'tvoc_ppb', 'aqi', 'temp_globo_negro',
             ], now()),
-            'serieMetrica' => $this->servico->serieMetricaPorPeriodo($estacao->id, $metrica, $periodo, $dataReferencia),
+            'serieMetrica' => fn () => $this->servico->serieMetricaPorPeriodo($estacao->id, $metrica, $periodo, $dataReferencia),
             'metricasDisponiveis' => SerieMetricaService::METRICAS_PERMITIDAS,
             'metricaSelecionada' => $metrica,
             'periodosDisponiveis' => SerieMetricaService::PERIODOS_PERMITIDOS,
             'periodoSelecionado' => $periodo,
             'dataReferencia' => $dataReferencia->toDateString(),
-            'navegacaoPeriodo' => $this->servico->infoNavegacaoPeriodo($periodo, $dataReferencia),
-            'alertasRecentes' => AlertaDisparado::with(['alertaConfig', 'leitura'])
+            'navegacaoPeriodo' => fn () => $this->servico->infoNavegacaoPeriodo($periodo, $dataReferencia),
+            'alertasRecentes' => fn () => AlertaDisparado::with('alertaConfig')
                 ->whereHas('alertaConfig', fn ($q) => $q->where('estacao_id', $estacao->id))
                 ->latest()
                 ->limit(10)
@@ -42,6 +42,7 @@ class EstacaoController extends Controller
                 ->map(fn ($alerta) => [
                     'id' => $alerta->id,
                     'parametro' => $alerta->alertaConfig->parametro ?? 'N/A',
+                    'operador' => $alerta->alertaConfig->operador ?? null,
                     'valor_lido' => $alerta->valor_lido,
                     'valor_limite' => $alerta->alertaConfig->valor_limite ?? null,
                     'resolvido' => $alerta->resolvido,

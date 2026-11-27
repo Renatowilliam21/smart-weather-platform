@@ -1,4 +1,5 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { BarraFiltroTemporal } from '@/Components/Dashboard/SeletoresPeriodo';
 import {
     formatarNumero,
     formatarValorMetrica,
@@ -6,6 +7,7 @@ import {
     useUnidadeMetrica,
 } from '@/Components/Boletim/unidades';
 import { Head, Link, router } from '@inertiajs/react';
+import { ArrowDown, ArrowLeft, ArrowUp, Minus } from 'lucide-react';
 import { lazy, memo, Suspense, useCallback, useMemo, useState } from 'react';
 
 // Carregado sob demanda via React.lazy (mesmo padrão de Dashboard.jsx e Estacoes/Detalhe.jsx)
@@ -64,9 +66,6 @@ const PROPS_PARCIAIS = ['boletim', 'periodo', 'dataReferencia', 'metrica'];
 const AZUL = [62, 143, 209];
 const AREIA = [234, 217, 160];
 const LARANJA = [199, 98, 45];
-
-const formatarDataLocal = (d) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 function formatarValorCard(card) {
     if (card.titulo === 'Dias em alerta térmico') {
@@ -139,14 +138,17 @@ const InfoGrafico = memo(function InfoGrafico({ titulo, subtitulo, serie, metric
             </div>
             {resumo && (
                 <div className="flex flex-wrap gap-3 text-xs">
-                    <span className="text-red-600 font-medium">
-                        ▲ pico {resumo.pico.rotulo} · {formatarValorMetrica(resumo.pico.valor, chaveUnidade, 1)}
+                    <span className="inline-flex items-center gap-1 text-red-600 font-medium">
+                        <ArrowUp className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        pico {resumo.pico.rotulo} · {formatarValorMetrica(resumo.pico.valor, chaveUnidade, 1)}
                     </span>
-                    <span className="text-blue-600 font-medium">
-                        ▼ mínima {resumo.vale.rotulo} · {formatarValorMetrica(resumo.vale.valor, chaveUnidade, 1)}
+                    <span className="inline-flex items-center gap-1 text-blue-600 font-medium">
+                        <ArrowDown className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        mínima {resumo.vale.rotulo} · {formatarValorMetrica(resumo.vale.valor, chaveUnidade, 1)}
                     </span>
-                    <span className="text-gray-600 font-medium">
-                        ◆ média {formatarValorMetrica(resumo.media, chaveUnidade, 1)}
+                    <span className="inline-flex items-center gap-1 text-gray-600 font-medium">
+                        <Minus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        média {formatarValorMetrica(resumo.media, chaveUnidade, 1)}
                     </span>
                 </div>
             )}
@@ -344,15 +346,6 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
         });
     }, [boletim.series, estacao.id, periodo, dataReferencia, metrica, irPara]);
 
-    const navegarData = useCallback((direcao) => {
-        const data = new Date(dataReferencia + 'T00:00:00');
-        if (periodo === 'dia') data.setDate(data.getDate() + direcao);
-        else if (periodo === 'semana') data.setDate(data.getDate() + direcao * 7);
-        else if (periodo === 'mes') data.setMonth(data.getMonth() + direcao);
-        else if (periodo === 'ano') data.setFullYear(data.getFullYear() + direcao);
-        irPara({ data: formatarDataLocal(data) });
-    }, [dataReferencia, periodo, irPara]);
-
     const serie = boletim.series?.[metrica] ?? boletim.serieChart;
 
     const tituloGrafico = useMemo(() => {
@@ -371,16 +364,21 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
 
     const header = useMemo(() => (
         <div className="flex items-center gap-3">
-            <Link href={route('estacoes.show', estacao.id)} className="text-gray-400 hover:text-gray-600">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-                </svg>
+            <Link
+                href={route('estacoes.show', estacao.id)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                aria-label={`Voltar para ${estacao.nome}`}
+            >
+                <ArrowLeft className="h-5 w-5" aria-hidden="true" />
             </Link>
             <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                 Boletim — {estacao.nome}
             </h2>
         </div>
     ), [estacao.id, estacao.nome]);
+
+    const hojeISO = new Date().toISOString().split('T')[0];
+    const podeAvancarBoletim = dataReferencia < hojeISO;
 
     return (
         <AuthenticatedLayout breadcrumbs={breadcrumbs} header={header}>
@@ -389,63 +387,15 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
             <div className="py-12">
                 <div className="max-w-5xl mx-auto sm:px-6 lg:px-8 space-y-6">
 
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                        <div className="flex gap-2">
-                            {PERIODOS.map((p) => (
-                                <button
-                                    key={p.valor}
-                                    onClick={() => irPara({ periodo: p.valor })}
-                                    disabled={carregando}
-                                    className={`px-4 py-2 rounded text-sm font-medium disabled:cursor-wait ${
-                                        periodo === p.valor
-                                            ? 'bg-gray-800 text-white'
-                                            : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    {p.rotulo}
-                                </button>
-                            ))}
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => navegarData(-1)}
-                                disabled={carregando}
-                                aria-label="Período anterior"
-                                className="w-8 h-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:cursor-wait"
-                            >
-                                &lsaquo;
-                            </button>
-                            <p className="text-sm text-gray-600 min-w-[180px] text-center">{boletim.rotulo}</p>
-                            <button
-                                onClick={() => navegarData(1)}
-                                disabled={carregando}
-                                aria-label="Próximo período"
-                                className="w-8 h-8 flex items-center justify-center rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:cursor-wait"
-                            >
-                                &rsaquo;
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="flex gap-2 flex-wrap">
-                        {METRICAS_SELETOR.map((m) => {
-                            const unidadeBotao = UNIDADES_METRICAS[m.valor]?.unidade;
-                            return (
-                                <button
-                                    key={m.valor}
-                                    onClick={() => trocarMetrica(m.valor)}
-                                    disabled={carregando}
-                                    className={`px-3 py-1.5 rounded text-xs font-medium ${
-                                        metrica === m.valor
-                                            ? 'bg-indigo-100 text-indigo-800 border border-indigo-300'
-                                            : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    {m.rotulo}{unidadeBotao ? ` (${unidadeBotao})` : ''}
-                                </button>
-                            );
-                        })}
-                    </div>
+                    <BarraFiltroTemporal
+                        periodo={periodo}
+                        periodosDisponiveis={PERIODOS}
+                        dataReferencia={dataReferencia}
+                        navegacaoPeriodo={{ rotulo: boletim.rotulo, pode_avancar: podeAvancarBoletim }}
+                        onNavegarData={(novaData) => irPara({ data: novaData })}
+                        onMudarPeriodo={(novoPeriodo) => irPara({ periodo: novoPeriodo })}
+                        disabled={carregando}
+                    />
 
                     <div
                         aria-busy={carregando}
@@ -460,6 +410,26 @@ export default function Show({ estacao, periodo, dataReferencia, metrica, boleti
                                     metrica={metrica}
                                     unidade={unidade}
                                 />
+                                <div className="flex gap-1.5 flex-wrap mb-4 pb-3 border-b border-gray-100">
+                                    {METRICAS_SELETOR.map((m) => {
+                                        const unidadeBotao = UNIDADES_METRICAS[m.valor]?.unidade;
+                                        return (
+                                            <button
+                                                key={m.valor}
+                                                type="button"
+                                                onClick={() => trocarMetrica(m.valor)}
+                                                disabled={carregando}
+                                                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                                                    metrica === m.valor
+                                                        ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-xs'
+                                                        : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
+                                                }`}
+                                            >
+                                                {m.rotulo}{unidadeBotao ? ` (${unidadeBotao})` : ''}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                                 <Suspense fallback={<EsqueletoGrafico />}>
                                     <GraficoBoletim
                                         key={`${periodo}-${metricaAtiva}`}

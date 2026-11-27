@@ -116,9 +116,10 @@ class SerieMetricaService
             default => "AVG({$metrica})",
         };
 
-        // Realiza agregação direta no banco de dados para evitar estouro de memória (OOM)
-        // quando a estação tem centenas de milhares de leituras registradas.
-        $agrupados = Leitura::whereBetween('registrado_em', [$inicio, $fim])
+        // Realiza agregação direta no banco de dados (sem hidratar models Eloquent)
+        // para evitar estouro de memória (OOM) e acelerar a resposta dos gráficos.
+        $agrupados = Leitura::query()->toBase()
+            ->whereBetween('registrado_em', [$inicio, $fim])
             ->whereNotNull($metrica)
             ->when($estacaoId, fn ($query) => $query->where('estacao_id', $estacaoId))
             ->selectRaw("estacao_id, {$expressaoPeriodo} as chave_periodo, {$funcaoAgregacao} as valor")
@@ -188,13 +189,35 @@ class SerieMetricaService
             ->whereBetween('registrado_em', [$inicio, $fim])
             ->get($colunas);
 
+        $maximos = array_fill_keys($metricasValidas, null);
+        $minimos = array_fill_keys($metricasValidas, null);
+        $maxValores = [];
+        $minValores = [];
+
+        foreach ($leituras as $leitura) {
+            foreach ($metricasValidas as $metrica) {
+                $valorBruto = $leitura->{$metrica};
+                if ($valorBruto === null) {
+                    continue;
+                }
+
+                $num = (float) $valorBruto;
+                if ($maximos[$metrica] === null || $num > $maxValores[$metrica]) {
+                    $maximos[$metrica] = $leitura;
+                    $maxValores[$metrica] = $num;
+                }
+                if ($minimos[$metrica] === null || $num < $minValores[$metrica]) {
+                    $minimos[$metrica] = $leitura;
+                    $minValores[$metrica] = $num;
+                }
+            }
+        }
+
         $resultado = [];
 
         foreach ($metricasValidas as $metrica) {
-            $comValor = $leituras->whereNotNull($metrica);
-
-            $maximo = $comValor->sortByDesc($metrica)->first();
-            $minimo = $comValor->sortBy($metrica)->first();
+            $maximo = $maximos[$metrica];
+            $minimo = $minimos[$metrica];
 
             $resultado[$metrica] = [
                 'maximo' => $maximo ? [

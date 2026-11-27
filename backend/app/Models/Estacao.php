@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Cache;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -52,6 +53,11 @@ class Estacao extends Model
     public function leituras(): HasMany
     {
         return $this->hasMany(Leitura::class);
+    }
+
+    public function ultimaLeitura(): HasOne
+    {
+        return $this->hasOne(Leitura::class)->latestOfMany('registrado_em');
     }
 
     public function leituraEstatisticas(): HasMany

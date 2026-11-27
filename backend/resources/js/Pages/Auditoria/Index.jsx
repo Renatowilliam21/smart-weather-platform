@@ -1,5 +1,6 @@
+import Pagination from '@/Components/Pagination';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 
 const ROTULOS_ACAO = {
     created: 'Criado',
@@ -101,26 +102,7 @@ export default function Index({ registros }) {
                             </tbody>
                         </table>
 
-                        {registros.links.length > 3 && (
-                            <div className="px-6 py-4 border-t border-gray-100 flex flex-wrap gap-1">
-                                {registros.links.map((link, i) => (
-                                    <Link
-                                        key={i}
-                                        href={link.url ?? '#'}
-                                        preserveState
-                                        preserveScroll
-                                        className={`px-3 py-1 rounded text-sm ${
-                                            link.active
-                                                ? 'bg-gray-800 text-white'
-                                                : link.url
-                                                ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                                : 'text-gray-300 cursor-not-allowed'
-                                        }`}
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
-                                    />
-                                ))}
-                            </div>
-                        )}
+                        <Pagination links={registros.links} />
                     </div>
 
                 </div>

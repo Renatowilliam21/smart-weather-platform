@@ -1,15 +1,17 @@
 /***************************************************************************
  * SMART WEATHER PLATFORM
- * Firmware v2.10 (ESP32 WROOM-32 tradicional, GPIO21/22)
+ * Firmware v2.11 (ESP32 WROOM-32 tradicional, GPIO21/22 + Wire1 GPIO25/33)
  *
  * Sensores suportados (deteccao automatica por chip ID + redundancia):
- *   - DHT22 (globo negro) - sempre obrigatorio
- *   - Ambiente (temperatura/umidade): SHT41 > BME280 > AHT10 > DHT22 (fallback)
+ *   - Globo negro (ITGU): AHT10 isolado no Wire1 (SDA=25, SCL=33 a 50 kHz)
+ *     com fallback automatico no boot para DHT22 (GPIO 4) nas placas antigas
+ *   - Ambiente (temperatura/umidade): SHT41 > BME280 > AHT10 (Wire) > Globo negro (fallback)
  *   - Pressao/altitude: BME280 ou BMP280 (identificado pelo chip ID)
  *   - Qualidade do ar: ENS160 (CO2 equivalente, TVOC, AQI) - o AHT21 do
- *     modulo combo e detectado pelo mesmo codigo do AHT10 (endereco 0x38
- *     compartilhado - nao ligar os dois juntos no mesmo barramento)
- *   - GUVA-S12SD (UV) e LDR (luminosidade)
+ *     modulo combo e detectado pelo mesmo codigo do AHT10 no Wire principal
+ *     (endereco 0x38 - o AHT10 do globo negro roda isolado no Wire1 para
+ *     nao conflitar nem travar o BMP280/demais sensores do barramento padrao)
+ *   - GUVA-S12SD (UV) e LDR / VEML7700 (luminosidade)
  * Modulos OPCIONAIS (detectados automaticamente no boot):
  *   - RTC DS3231: se ausente, usa o horario do proprio servidor ao receber
  *   - EEPROM AT24C32: se ausente, usa fila de 1 posicao na RAM (sem
@@ -33,6 +35,10 @@
  *   v2.10: adiciona pluviometro de bascula (chuva_mm), anemometro
  *          (vel_vento) e sensor VEML7700 (luminosidade em lux, prioridade
  *          sobre o LDR analogico)
+ *   v2.11: adiciona suporte ao AHT10 no globo negro via segundo barramento
+ *          I2C por hardware (Wire1: SDA=25, SCL=33 a 50 kHz), mantendo
+ *          fallback automatico para o DHT22 (GPIO 4) e preservando GPIO 26
+ *          livre para o pluviometro
  ***************************************************************************/
 
 //==============================
@@ -51,7 +57,12 @@
 #include <Adafruit_BMP280.h>
 #include <Adafruit_AHTX0.h>
 #include <Adafruit_SHT4x.h>
+#if __has_include(<Adafruit_VEML7700.h>)
 #include <Adafruit_VEML7700.h>
+#define SUPORTE_VEML7700 1
+#else
+#define SUPORTE_VEML7700 0
+#endif
 #include "ScioSense_ENS160.h"
 #include <RTClib.h>
 #include <Preferences.h>
@@ -67,6 +78,12 @@
 #define UV_PIN 35
 #define SDA_PIN 21
 #define SCL_PIN 22
+// Segundo barramento I2C por hardware (Wire1) dedicado ao AHT10 do globo negro.
+// SCL usa GPIO 33 (vizinho do GPIO 25 na placa) para manter o GPIO 26 livre
+// para a interrupcao do pluviometro, e roda a 50 kHz para tolerar cabos longos.
+#define GLOBO_SDA_PIN 25
+#define GLOBO_SCL_PIN 33
+#define GLOBO_I2C_CLOCK_HZ 50000UL
 #define BOTAO_RESET_PIN 0
 #define ENDERECO_EEPROM_I2C 0x50
 #define PLUVIOMETRO_PIN 26
@@ -94,9 +111,12 @@ const float PRESSAO_MAX_VALIDA = 1100.0;
 DHT dht(DHT_PIN, DHT_TYPE);
 Adafruit_BME280 bme;
 Adafruit_BMP280 bmp;
-Adafruit_AHTX0 aht;
+Adafruit_AHTX0 aht;       // AHT10/AHT21 de ambiente no barramento padrao Wire (21/22)
+Adafruit_AHTX0 ahtGlobo;  // AHT10 do globo negro isolado no Wire1 (25/33)
 Adafruit_SHT4x sht4 = Adafruit_SHT4x();
+#if SUPORTE_VEML7700
 Adafruit_VEML7700 veml = Adafruit_VEML7700();
+#endif
 ScioSense_ENS160 ens160_addr52(ENS160_I2CADDR_0); // 0x52
 ScioSense_ENS160 ens160_addr53(ENS160_I2CADDR_1); // 0x53
 ScioSense_ENS160* ens160 = nullptr;
@@ -107,6 +127,7 @@ WebServer servidorAdmin(80);
 //==============================
 // DISPONIBILIDADE DOS SENSORES/MODULOS (detectada no boot)
 //==============================
+bool ahtGloboDisponivel = false;
 bool bmeDisponivel = false;
 bool bmpDisponivel = false;
 bool ahtDisponivel = false;
@@ -132,11 +153,11 @@ String ultimoStatusLocal = "aguardando";
 String ultimoStatusProducao = "aguardando";
 
 //==============================
-// INTERVALOS
+// INTERVALOS (envio de 1 em 1 minuto para o sistema web)
 //==============================
-const unsigned long INTERVALO_COLETA_MS = 60000;
-const unsigned long INTERVALO_AGREGACAO_MS = 600000;
-const unsigned long INTERVALO_TENTATIVA_ENVIO_MS = 60000;
+const unsigned long INTERVALO_COLETA_MS = 15000;          // coleta 1 amostra a cada 15s (4 amostras/min)
+const unsigned long INTERVALO_AGREGACAO_MS = 60000;       // fecha a media e envia a cada 1 minuto (60s)
+const unsigned long INTERVALO_TENTATIVA_ENVIO_MS = 15000; // nova tentativa rapida caso o envio falhe
 
 unsigned long ultimaColeta = 0;
 unsigned long ultimaAgregacao = 0;
@@ -267,7 +288,8 @@ void inicializarSensores();
 byte identificarChipBmx(byte endereco);
 bool detectarEeprom();
 void coletarAmostra();
-void lerAmbiente(float &temperatura, float &umidade, float dhtTempJaLido, float dhtUmidJaLido);
+void lerGloboNegro(float &temperatura, float &umidade);
+void lerAmbiente(float &temperatura, float &umidade, float globoTempJaLido, float globoUmidJaLido);
 void lerPressaoAltitude(float &pressao, float &altitude);
 void lerQualidadeAr(float &co2, float &tvoc, float &aqi);
 float lerUV();
@@ -309,7 +331,7 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ANEMOMETRO_PIN), isrAnemometro, FALLING);
 
     Serial.println("\n==============================");
-    Serial.println(" SMART WEATHER PLATFORM v2.10 ");
+    Serial.println(" SMART WEATHER PLATFORM v2.11 ");
     Serial.println(" ESP32 tradicional (GPIO21/22) ");
     Serial.println("==============================");
 
@@ -376,12 +398,14 @@ void loop() {
             }
         }
         if (comando == "sensores") {
-            Serial.printf("SHT41: %s | BME280: %s | BMP280: %s | AHT10: %s | ENS160: %s | RTC: %s | EEPROM: %s\n",
+            Serial.printf("Globo Negro: %s | SHT41: %s | BME280: %s | BMP280: %s | AHT10(Amb): %s | ENS160: %s | VEML7700: %s | RTC: %s | EEPROM: %s\n",
+                ahtGloboDisponivel ? "AHT10 (Wire1 25/33)" : "DHT22 (GPIO4)",
                 sht4Disponivel ? "sim" : "nao",
                 bmeDisponivel ? "sim" : "nao",
                 bmpDisponivel ? "sim" : "nao",
                 ahtDisponivel ? "sim" : "nao",
                 ens160Disponivel ? "sim" : "nao",
+                vemlDisponivel ? "sim" : "nao",
                 rtcDisponivel ? "sim" : "nao",
                 eepromDisponivel ? "sim" : "nao");
         }
@@ -403,6 +427,7 @@ void loop() {
     if (agora - ultimaAgregacao >= INTERVALO_AGREGACAO_MS || ultimaAgregacao == 0) {
         gravarRegistroPendente();
         ultimaAgregacao = agora;
+        ultimaTentativaEnvio = 0; // dispara o envio imediatamente ao fechar o minuto
     }
 
     if (agora - ultimaTentativaEnvio >= INTERVALO_TENTATIVA_ENVIO_MS || ultimaTentativaEnvio == 0) {
@@ -433,8 +458,24 @@ bool detectarEeprom() {
 
 void inicializarSensores() {
     Wire.begin(SDA_PIN, SCL_PIN);
-    dht.begin();
-    Serial.println("DHT22 configurado (sempre ativo, sem deteccao - e obrigatorio).");
+
+    // Deteccao automatica do globo negro: tenta primeiro o AHT10 isolado no
+    // segundo barramento I2C por hardware (Wire1: SDA=25, SCL=33 a 50 kHz).
+    // Se nao responder, libera o Wire1 e usa o DHT22 no GPIO 4 como fallback.
+    Wire1.begin(GLOBO_SDA_PIN, GLOBO_SCL_PIN, GLOBO_I2C_CLOCK_HZ);
+    delay(50);
+    if (ahtGlobo.begin(&Wire1)) {
+        Wire1.setClock(GLOBO_I2C_CLOCK_HZ);
+        ahtGloboDisponivel = true;
+        Serial.printf("Globo negro: AHT10 encontrado no Wire1 (SDA=%d, SCL=%d, clock=%lu Hz).\n",
+            GLOBO_SDA_PIN, GLOBO_SCL_PIN, GLOBO_I2C_CLOCK_HZ);
+    } else {
+        ahtGloboDisponivel = false;
+        Wire1.end();
+        dht.begin();
+        Serial.printf("Globo negro: AHT10 nao encontrado no Wire1 (SDA=%d, SCL=%d). Usando DHT22 no GPIO %d (fallback).\n",
+            GLOBO_SDA_PIN, GLOBO_SCL_PIN, DHT_PIN);
+    }
 
     byte enderecoDetectado = 0;
     byte chipId = identificarChipBmx(0x76);
@@ -448,20 +489,20 @@ void inicializarSensores() {
     if (chipId == 0x60) {
         bmeDisponivel = bme.begin(enderecoDetectado);
         bmeSaudavel = bmeDisponivel;
-        Serial.println(bmeDisponivel ? "BME280 encontrado (ambiente + pressao/altitude)." : "BME280 detectado (chip ID) mas falhou ao iniciar a biblioteca.");
+        Serial.println(bmeDisponivel ? "BME280 encontrado no Wire principal (ambiente + pressao/altitude)." : "BME280 detectado (chip ID) mas falhou ao iniciar a biblioteca.");
     } else if (chipId == 0x58) {
         bmpDisponivel = bmp.begin(enderecoDetectado);
-        Serial.println(bmpDisponivel ? "BMP280 encontrado (pressao/altitude, sem umidade)." : "BMP280 detectado (chip ID) mas falhou ao iniciar a biblioteca.");
+        Serial.println(bmpDisponivel ? "BMP280 encontrado no Wire principal (pressao/altitude, sem umidade)." : "BMP280 detectado (chip ID) mas falhou ao iniciar a biblioteca.");
     } else {
-        Serial.println("Nenhum sensor BME280/BMP280 detectado no barramento I2C.");
+        Serial.println("Nenhum sensor BME280/BMP280 detectado no barramento I2C principal (21/22).");
     }
 
-    if (aht.begin()) {
+    if (aht.begin(&Wire)) {
         ahtDisponivel = true;
         ahtSaudavel = true;
-        Serial.println("AHT10 encontrado (ambiente, backup do BME280).");
+        Serial.println("AHT10/AHT21 de ambiente encontrado no Wire principal (21/22, backup do BME280).");
     } else {
-        Serial.println("AHT10 nao encontrado.");
+        Serial.println("AHT10/AHT21 de ambiente nao encontrado no Wire principal (21/22).");
     }
 
     if (sht4.begin()) {
@@ -488,12 +529,16 @@ void inicializarSensores() {
         Serial.println("ENS160 nao encontrado.");
     }
 
+#if SUPORTE_VEML7700
     if (veml.begin()) {
         vemlDisponivel = true;
         Serial.println("VEML7700 encontrado (0x10) - luminosidade em lux, prioridade sobre o LDR analogico.");
     } else {
         Serial.println("VEML7700 nao encontrado. Luminosidade sera lida via LDR analogico (0-100).");
     }
+#else
+    Serial.println("Luminosidade sera lida via LDR analogico (0-100).");
+#endif
     rtcDisponivel = rtc.begin();
     if (rtcDisponivel) {
         Serial.println("RTC DS3231 encontrado (0x68).");
@@ -508,8 +553,9 @@ void inicializarSensores() {
     eepromDisponivel = detectarEeprom();
     Serial.println(eepromDisponivel ? "EEPROM AT24C32 encontrada (0x50)." : "EEPROM nao encontrada.");
 
-    if (!bmeDisponivel && !bmpDisponivel && !ahtDisponivel) {
-        Serial.println("AVISO: nenhum sensor de ambiente/pressao encontrado. Temperatura do ar sera obtida do DHT22 (globo negro) como fallback.");
+    if (!sht4Disponivel && !bmeDisponivel && !ahtDisponivel) {
+        Serial.printf("INFO: sem sensor dedicado de temp/umidade do ar no Wire (21/22). Temperatura/umidade do ar usara %s como fallback.\n",
+            ahtGloboDisponivel ? "AHT10 (globo negro / Wire1)" : "DHT22 (globo negro)");
     }
 
     analogReadResolution(12);
@@ -517,9 +563,39 @@ void inicializarSensores() {
 }
 
 //====================================================
+// LEITURA DO GLOBO NEGRO (AHT10 no Wire1 ou DHT22 no GPIO 4)
+//====================================================
+void lerGloboNegro(float &temperatura, float &umidade) {
+    temperatura = NAN;
+    umidade = NAN;
+
+    if (ahtGloboDisponivel) {
+        sensors_event_t evUmidGlobo, evTempGlobo;
+        if (ahtGlobo.getEvent(&evUmidGlobo, &evTempGlobo)) {
+            temperatura = evTempGlobo.temperature;
+            umidade = evUmidGlobo.relative_humidity;
+        } else {
+            // Recuperacao automatica caso ruido no cabo do globo negro trave o AHT10
+            Serial.println("AVISO: falha I2C ao ler AHT10 (Wire1). Reinicializando barramento do globo negro...");
+            Wire1.end();
+            delay(10);
+            Wire1.begin(GLOBO_SDA_PIN, GLOBO_SCL_PIN, GLOBO_I2C_CLOCK_HZ);
+            delay(20);
+            if (ahtGlobo.begin(&Wire1)) {
+                Wire1.setClock(GLOBO_I2C_CLOCK_HZ);
+            }
+        }
+        return;
+    }
+
+    temperatura = dht.readTemperature();
+    umidade = dht.readHumidity();
+}
+
+//====================================================
 // LEITURA DE AMBIENTE COM REDUNDANCIA EM TEMPO REAL
 //====================================================
-void lerAmbiente(float &temperatura, float &umidade, float dhtTempJaLido, float dhtUmidJaLido) {
+void lerAmbiente(float &temperatura, float &umidade, float globoTempJaLido, float globoUmidJaLido) {
     temperatura = NAN;
     umidade = NAN;
     String fonteEscolhida = "nenhuma";
@@ -575,10 +651,10 @@ void lerAmbiente(float &temperatura, float &umidade, float dhtTempJaLido, float 
     }
 
     if (isnan(temperatura)) {
-        if (faixaValida(dhtTempJaLido, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) && faixaValida(dhtUmidJaLido, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
-            temperatura = dhtTempJaLido;
-            umidade = dhtUmidJaLido;
-            fonteEscolhida = "DHT22 (fallback)";
+        if (faixaValida(globoTempJaLido, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) && faixaValida(globoUmidJaLido, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
+            temperatura = globoTempJaLido;
+            umidade = globoUmidJaLido;
+            fonteEscolhida = ahtGloboDisponivel ? "AHT10-Globo (fallback)" : "DHT22 (fallback)";
         }
     }
 
@@ -633,9 +709,11 @@ float lerUV() {
 }
 
 float lerLDR() {
+#if SUPORTE_VEML7700
     if (vemlDisponivel) {
         return veml.readLux();
     }
+#endif
     return map(analogRead(LDR_PIN), 0, 4095, 100, 0);
 }
 
@@ -647,17 +725,20 @@ bool faixaValida(float valor, float minimo, float maximo) {
 // COLETA DE UMA AMOSTRA (a cada 1 minuto)
 //====================================================
 void coletarAmostra() {
-    float tempGloboNegro = dht.readTemperature();
-    float umidGloboNegro = dht.readHumidity();
+    const char* nomeSensorGlobo = ahtGloboDisponivel ? "AHT10 (globo negro)" : "DHT22 (globo negro)";
+    float tempGloboNegro, umidGloboNegro;
+    lerGloboNegro(tempGloboNegro, umidGloboNegro);
 
     if (isnan(tempGloboNegro) || isnan(umidGloboNegro)) {
-        Serial.println("Falha ao ler DHT22 (globo negro) nesta amostra. Ignorando.");
+        Serial.printf("Falha ao ler %s nesta amostra. Ignorando.\n", nomeSensorGlobo);
     } else if (!faixaValida(tempGloboNegro, TEMP_MIN_VALIDA, TEMP_MAX_VALIDA) ||
                !faixaValida(umidGloboNegro, UMIDADE_MIN_VALIDA, UMIDADE_MAX_VALIDA)) {
-        Serial.printf("DHT22 (globo negro) fora da faixa plausivel (temp=%.1f umid=%.1f). Descartando amostra.\n", tempGloboNegro, umidGloboNegro);
+        Serial.printf("%s fora da faixa plausivel (temp=%.1f umid=%.1f). Descartando amostra.\n",
+            nomeSensorGlobo, tempGloboNegro, umidGloboNegro);
         leiturasDescartadasFaixa++;
     } else if (!passaTesteDegrau(tempGloboNegro, ultimaTempGloboNegroValida)) {
-        Serial.printf("DHT22 (globo negro) reprovado no teste de degrau (variacao > %.1fC). Descartando amostra.\n", DEGRAU_MAX_VARIACAO_C);
+        Serial.printf("%s reprovado no teste de degrau (variacao > %.1fC). Descartando amostra.\n",
+            nomeSensorGlobo, DEGRAU_MAX_VARIACAO_C);
     } else {
         acTempGloboNegro.adicionar(tempGloboNegro);
         acUmidGloboNegro.adicionar(umidGloboNegro);
@@ -698,7 +779,11 @@ void coletarAmostra() {
 
     acLDR.adicionar(lerLDR());
 
-    Serial.printf("Amostra coletada (%d acumuladas | ambiente via %s)\n", acUV.quantidade, fonteAmbienteAtual.c_str());
+    Serial.printf("Amostra coletada (globo[%s]=%.1fC/%.1f%% [%d] | ambiente[%s]=%.1fC/%.1f%% | pressao=%.1f hPa)\n",
+        ahtGloboDisponivel ? "AHT10-Wire1" : "DHT22",
+        tempGloboNegro, umidGloboNegro, acTempGloboNegro.quantidade,
+        fonteAmbienteAtual.c_str(), tempAr, umidAr,
+        pressao);
 }
 
 //====================================================
@@ -1138,11 +1223,13 @@ void configurarServidorAdmin() {
         } else {
             html += "Fila (RAM, sem EEPROM): " + String(registroPendenteRAMValido ? "1 pendente" : "vazia") + "<br>";
         }
-        html += "Sensores: SHT41=" + String(sht4Disponivel ? "sim" : "nao");
+        html += "Globo negro: " + String(ahtGloboDisponivel ? "AHT10 (Wire1 25/33)" : "DHT22 (GPIO4)") + "<br>";
+        html += "Sensores (Wire 21/22): SHT41=" + String(sht4Disponivel ? "sim" : "nao");
         html += " | BME280=" + String(bmeDisponivel ? "sim" : "nao");
         html += " | BMP280=" + String(bmpDisponivel ? "sim" : "nao");
-        html += " | AHT10=" + String(ahtDisponivel ? "sim" : "nao");
+        html += " | AHT10(Amb)=" + String(ahtDisponivel ? "sim" : "nao");
         html += " | ENS160=" + String(ens160Disponivel ? "sim" : "nao");
+        html += " | VEML7700=" + String(vemlDisponivel ? "sim" : "nao");
         html += " | RTC=" + String(rtcDisponivel ? "sim" : "nao");
         html += " | EEPROM=" + String(eepromDisponivel ? "sim" : "nao") + "<br>";
         html += "Fonte de ambiente atual: " + fonteAmbienteAtual + "<br>";

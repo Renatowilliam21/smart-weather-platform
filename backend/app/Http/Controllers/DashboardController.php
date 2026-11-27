@@ -24,15 +24,15 @@ class DashboardController extends Controller
         $dataReferencia = $this->servico->resolverDataReferencia($request->string('data')->toString());
 
         return Inertia::render('Dashboard', [
-            'estacoes' => $this->estacoesComUltimaLeitura(),
-            'serieMetrica' => $this->servico->serieMetricaPorPeriodo($estacaoId, $metrica, $periodo, $dataReferencia),
+            'estacoes' => fn () => $this->estacoesComUltimaLeitura(),
+            'serieMetrica' => fn () => $this->servico->serieMetricaPorPeriodo($estacaoId, $metrica, $periodo, $dataReferencia),
             'metricasDisponiveis' => SerieMetricaService::METRICAS_PERMITIDAS,
             'metricaSelecionada' => $metrica,
             'periodosDisponiveis' => SerieMetricaService::PERIODOS_PERMITIDOS,
             'periodoSelecionado' => $periodo,
             'dataReferencia' => $dataReferencia->toDateString(),
-            'navegacaoPeriodo' => $this->servico->infoNavegacaoPeriodo($periodo, $dataReferencia),
-            'alertasRecentes' => $this->alertasRecentes($estacaoId),
+            'navegacaoPeriodo' => fn () => $this->servico->infoNavegacaoPeriodo($periodo, $dataReferencia),
+            'alertasRecentes' => fn () => $this->alertasRecentes($estacaoId),
             'estacaoSelecionada' => $estacaoId,
         ]);
     }
@@ -52,7 +52,7 @@ class DashboardController extends Controller
         ]);
     }
 
-    public function minMax(Request $request, \App\Models\Estacao $estacao)
+    public function minMax(Request $request, Estacao $estacao)
     {
         $metrica = $request->string('metrica', 'itgu')->toString();
 
@@ -68,12 +68,10 @@ class DashboardController extends Controller
             ->toArray();
 
         return Estacao::where('ativo', true)
-            ->with(['leituras' => function ($query) {
-                $query->latest('registrado_em')->limit(1);
-            }])
+            ->with('ultimaLeitura')
             ->get()
             ->map(function ($estacao) use ($idsOffline) {
-                $ultima = $estacao->leituras->first();
+                $ultima = $estacao->ultimaLeitura;
 
                 return [
                     'id' => $estacao->id,
@@ -95,7 +93,7 @@ class DashboardController extends Controller
 
     private function alertasRecentes(?int $estacaoId = null)
     {
-        return AlertaDisparado::with(['alertaConfig.estacao', 'leitura'])
+        return AlertaDisparado::with('alertaConfig.estacao')
             ->when($estacaoId, function ($query) use ($estacaoId) {
                 $query->whereHas('alertaConfig', fn ($q) => $q->where('estacao_id', $estacaoId));
             })
@@ -107,6 +105,7 @@ class DashboardController extends Controller
                     'id' => $alerta->id,
                     'estacao_nome' => $alerta->alertaConfig->estacao->nome ?? 'N/A',
                     'parametro' => $alerta->alertaConfig->parametro ?? 'N/A',
+                    'operador' => $alerta->alertaConfig->operador ?? null,
                     'valor_lido' => $alerta->valor_lido,
                     'valor_limite' => $alerta->alertaConfig->valor_limite ?? null,
                     'resolvido' => $alerta->resolvido,

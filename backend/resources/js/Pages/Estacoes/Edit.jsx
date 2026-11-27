@@ -1,9 +1,11 @@
+import ConfirmModal from '@/Components/ConfirmModal';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import InputLabel from '@/Components/InputLabel';
 import TextInput from '@/Components/TextInput';
 import InputError from '@/Components/InputError';
 import PrimaryButton from '@/Components/PrimaryButton';
 import { Head, Link, useForm, router } from '@inertiajs/react';
+import { Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 
 export default function Edit({ estacao }) {
@@ -16,16 +18,26 @@ export default function Edit({ estacao }) {
     });
 
     const [tokenVisivel, setTokenVisivel] = useState(false);
+    const [confirmandoRegeneracao, setConfirmandoRegeneracao] = useState(false);
+    const [regenerando, setRegenerando] = useState(false);
 
     const submit = (e) => {
         e.preventDefault();
         put(route('estacoes.update', estacao.id));
     };
 
-    const regenerarToken = () => {
-        if (confirm('Regenerar o token vai invalidar o token atual. O ESP32 precisará ser reconfigurado. Continuar?')) {
-            router.post(route('estacoes.regenerar-token', estacao.id));
-        }
+    const confirmarRegenerarToken = () => {
+        setRegenerando(true);
+        router.post(
+            route('estacoes.regenerar-token', estacao.id),
+            {},
+            {
+                onFinish: () => {
+                    setRegenerando(false);
+                    setConfirmandoRegeneracao(false);
+                },
+            },
+        );
     };
 
     return (
@@ -130,22 +142,43 @@ export default function Edit({ estacao }) {
                             <button
                                 type="button"
                                 onClick={() => setTokenVisivel(!tokenVisivel)}
-                                className="text-sm text-blue-600 hover:underline whitespace-nowrap"
+                                className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline whitespace-nowrap"
                             >
-                                {tokenVisivel ? 'Ocultar' : 'Mostrar'}
+                                {tokenVisivel ? (
+                                    <>
+                                        <EyeOff className="h-4 w-4" aria-hidden="true" />
+                                        Ocultar
+                                    </>
+                                ) : (
+                                    <>
+                                        <Eye className="h-4 w-4" aria-hidden="true" />
+                                        Mostrar
+                                    </>
+                                )}
                             </button>
                         </div>
 
                         <button
                             type="button"
-                            onClick={regenerarToken}
-                            className="mt-4 text-sm text-red-600 hover:underline"
+                            onClick={() => setConfirmandoRegeneracao(true)}
+                            className="mt-4 inline-flex items-center gap-1.5 text-sm text-red-600 hover:underline"
                         >
+                            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                             Regenerar token
                         </button>
                     </div>
                 </div>
             </div>
+
+            <ConfirmModal
+                show={confirmandoRegeneracao}
+                onClose={() => !regenerando && setConfirmandoRegeneracao(false)}
+                onConfirm={confirmarRegenerarToken}
+                processing={regenerando}
+                title="Regenerar token da estação"
+                message="Regenerar o token vai invalidar imediatamente o token atual. O firmware do ESP32 precisará ser reconfigurado com o novo token. Deseja continuar?"
+                confirmLabel="Regenerar token"
+            />
         </AuthenticatedLayout>
     );
 }

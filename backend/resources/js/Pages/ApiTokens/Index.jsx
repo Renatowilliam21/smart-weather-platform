@@ -1,9 +1,11 @@
+import ConfirmModal from '@/Components/ConfirmModal';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import InputLabel from '@/Components/InputLabel';
 import InputError from '@/Components/InputError';
 import PrimaryButton from '@/Components/PrimaryButton';
 import TextInput from '@/Components/TextInput';
 import { Head, useForm, router } from '@inertiajs/react';
+import { Check, Copy } from 'lucide-react';
 import { useState } from 'react';
 
 export default function Index({ tokens, tokenGerado }) {
@@ -12,6 +14,8 @@ export default function Index({ tokens, tokenGerado }) {
     });
 
     const [copiado, setCopiado] = useState(false);
+    const [tokenParaRevogar, setTokenParaRevogar] = useState(null);
+    const [revogando, setRevogando] = useState(false);
 
     const submit = (e) => {
         e.preventDefault();
@@ -20,10 +24,15 @@ export default function Index({ tokens, tokenGerado }) {
         });
     };
 
-    const revogar = (tokenId, nome) => {
-        if (confirm(`Revogar o token "${nome}"? Qualquer integração usando ele vai parar de funcionar imediatamente.`)) {
-            router.delete(route('api-tokens.destroy', tokenId));
-        }
+    const confirmarRevogacao = () => {
+        if (!tokenParaRevogar) return;
+        setRevogando(true);
+        router.delete(route('api-tokens.destroy', tokenParaRevogar.id), {
+            onFinish: () => {
+                setRevogando(false);
+                setTokenParaRevogar(null);
+            },
+        });
     };
 
     const copiarToken = () => {
@@ -61,9 +70,19 @@ export default function Index({ tokens, tokenGerado }) {
                                 <button
                                     type="button"
                                     onClick={copiarToken}
-                                    className="px-4 py-2 bg-green-700 text-white text-sm font-medium rounded hover:bg-green-800 whitespace-nowrap"
+                                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-sm font-medium rounded hover:bg-green-800 whitespace-nowrap"
                                 >
-                                    {copiado ? 'Copiado!' : 'Copiar'}
+                                    {copiado ? (
+                                        <>
+                                            <Check className="h-4 w-4" aria-hidden="true" />
+                                            Copiado!
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Copy className="h-4 w-4" aria-hidden="true" />
+                                            Copiar
+                                        </>
+                                    )}
                                 </button>
                             </div>
                         </div>
@@ -112,7 +131,8 @@ export default function Index({ tokens, tokenGerado }) {
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <button
-                                                    onClick={() => revogar(token.id, token.name)}
+                                                    type="button"
+                                                    onClick={() => setTokenParaRevogar(token)}
                                                     className="text-red-600 hover:underline"
                                                 >
                                                     Revogar
@@ -145,6 +165,20 @@ export default function Index({ tokens, tokenGerado }) {
 
                 </div>
             </div>
+
+            <ConfirmModal
+                show={Boolean(tokenParaRevogar)}
+                onClose={() => !revogando && setTokenParaRevogar(null)}
+                onConfirm={confirmarRevogacao}
+                processing={revogando}
+                title="Revogar token de API"
+                message={
+                    tokenParaRevogar
+                        ? `Tem certeza que deseja revogar o token "${tokenParaRevogar.name}"? Qualquer integração que esteja utilizando este token deixará de funcionar imediatamente.`
+                        : ''
+                }
+                confirmLabel="Sim, revogar"
+            />
         </AuthenticatedLayout>
     );
 }

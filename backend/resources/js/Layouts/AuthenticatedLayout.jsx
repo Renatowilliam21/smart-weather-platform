@@ -1,9 +1,11 @@
 import ApplicationLogo from '@/Components/ApplicationLogo';
 import Dropdown from '@/Components/Dropdown';
 import Breadcrumbs from '@/Components/Breadcrumbs';
+import FlashToast from '@/Components/FlashToast';
 import NavLink from '@/Components/NavLink';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink';
 import { Link, router, usePage } from '@inertiajs/react';
+import { ChevronDown, Menu, X } from 'lucide-react';
 import { useState } from 'react';
 
 export default function AuthenticatedLayout({ header, breadcrumbs, children }) {
@@ -37,24 +39,28 @@ export default function AuthenticatedLayout({ header, breadcrumbs, children }) {
                                 <NavLink
                                     href={route('dashboard')}
                                     active={route().current('dashboard')}
+                                    prefetch
                                 >
                                     Dashboard
                                 </NavLink>
                                 <NavLink
                                     href={route('estacoes.index')}
-                                    active={route().current('estacoes.*')}
+                                    active={route().current('estacoes.*') || route().current('boletim.*')}
+                                    prefetch
                                 >
                                     Estações
                                 </NavLink>
                                 <NavLink
                                     href={route('alertas-config.index')}
                                     active={route().current('alertas-config.*')}
+                                    prefetch
                                 >
                                     Alertas
                                 </NavLink>
                                 <NavLink
                                     href={route('leituras.index')}
                                     active={route().current('leituras.*')}
+                                    prefetch
                                 >
                                     Histórico
                                 </NavLink>
@@ -70,18 +76,7 @@ export default function AuthenticatedLayout({ header, breadcrumbs, children }) {
                                             }
                                         >
                                             Documentação
-                                            <svg
-                                                className="-me-0.5 ms-1 h-4 w-4"
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                viewBox="0 0 20 20"
-                                                fill="currentColor"
-                                            >
-                                                <path
-                                                    fillRule="evenodd"
-                                                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                                                    clipRule="evenodd"
-                                                />
-                                            </svg>
+                                            <ChevronDown className="-me-0.5 ms-1 h-4 w-4" aria-hidden="true" />
                                         </button>
                                     </Dropdown.Trigger>
                                     <Dropdown.Content>
@@ -96,12 +91,14 @@ export default function AuthenticatedLayout({ header, breadcrumbs, children }) {
                                 <NavLink
                                     href={route('api-tokens.index')}
                                     active={route().current('api-tokens.*')}
+                                    prefetch
                                 >
                                     Tokens API
                                 </NavLink>
                                 <NavLink
                                     href={route('auditoria.index')}
                                     active={route().current('auditoria.*')}
+                                    prefetch
                                 >
                                     Auditoria
                                 </NavLink>
@@ -119,18 +116,7 @@ export default function AuthenticatedLayout({ header, breadcrumbs, children }) {
                                             >
                                                 {user.name}
 
-                                                <svg
-                                                    className="-me-0.5 ms-2 h-4 w-4"
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    viewBox="0 0 20 20"
-                                                    fill="currentColor"
-                                                >
-                                                    <path
-                                                        fillRule="evenodd"
-                                                        d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                                                        clipRule="evenodd"
-                                                    />
-                                                </svg>
+                                                <ChevronDown className="-me-0.5 ms-2 h-4 w-4" aria-hidden="true" />
                                             </button>
                                         </span>
                                     </Dropdown.Trigger>
@@ -160,36 +146,13 @@ export default function AuthenticatedLayout({ header, breadcrumbs, children }) {
                                     )
                                 }
                                 className="inline-flex items-center justify-center rounded-md p-2 text-gray-400 transition duration-150 ease-in-out hover:bg-gray-100 hover:text-gray-500 focus:bg-gray-100 focus:text-gray-500 focus:outline-none"
+                                aria-label="Alternar menu de navegação"
                             >
-                                <svg
-                                    className="h-6 w-6"
-                                    stroke="currentColor"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        className={
-                                            !showingNavigationDropdown
-                                                ? 'inline-flex'
-                                                : 'hidden'
-                                        }
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth="2"
-                                        d="M4 6h16M4 12h16M4 18h16"
-                                    />
-                                    <path
-                                        className={
-                                            showingNavigationDropdown
-                                                ? 'inline-flex'
-                                                : 'hidden'
-                                        }
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth="2"
-                                        d="M6 18L18 6M6 6l12 12"
-                                    />
-                                </svg>
+                                {showingNavigationDropdown ? (
+                                    <X className="h-6 w-6" aria-hidden="true" />
+                                ) : (
+                                    <Menu className="h-6 w-6" aria-hidden="true" />
+                                )}
                             </button>
                         </div>
                     </div>
@@ -210,7 +173,7 @@ export default function AuthenticatedLayout({ header, breadcrumbs, children }) {
                         </ResponsiveNavLink>
                         <ResponsiveNavLink
                             href={route('estacoes.index')}
-                            active={route().current('estacoes.*')}
+                            active={route().current('estacoes.*') || route().current('boletim.*')}
                         >
                             Estações
                         </ResponsiveNavLink>
@@ -285,6 +248,8 @@ export default function AuthenticatedLayout({ header, breadcrumbs, children }) {
                     </div>
                 </header>
             )}
+
+            <FlashToast />
 
             <main>{children}</main>
         </div>

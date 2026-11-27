@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import PainelAlertasRecentes from '@/Components/Dashboard/PainelAlertasRecentes';
+import { BarraFiltroTemporal } from '@/Components/Dashboard/SeletoresPeriodo';
 import { Head, Link, router } from '@inertiajs/react';
+import { ArrowDown, ArrowUp } from 'lucide-react';
 
 // Carregados sob demanda: Leaflet (mapa) e Recharts (grafico) sao bibliotecas
 // pesadas que nao precisam estar no bundle principal do Dashboard.
 const MapaEstacoes = lazy(() => import('@/Components/Dashboard/MapaEstacoes'));
 const GraficoMetrica = lazy(() => import('@/Components/Dashboard/PainelMetrica'));
-
-import { SeletorMetrica, SeletorPeriodo, NavegacaoPeriodo } from '@/Components/Dashboard/SeletoresPeriodo';
 
 function CarregandoWidget({ altura = 300 }) {
     return (
@@ -25,6 +26,14 @@ const CLASSIFICACAO_CORES = {
     alerta: 'bg-yellow-100 text-yellow-800',
     perigo: 'bg-red-100 text-red-800',
 };
+
+const PROPS_GRAFICO = [
+    'serieMetrica',
+    'metricaSelecionada',
+    'periodoSelecionado',
+    'dataReferencia',
+    'navegacaoPeriodo',
+];
 
 function SeletorEstacao({ estacoes, estacaoSelecionada, onChange }) {
     return (
@@ -53,12 +62,15 @@ function classificarUmidade(valor) {
 function MetricaClicavel({ rotulo, valor, unidade, metrica, aoClicar, ativa }) {
     return (
         <div onClick={(e) => aoClicar(e, metrica)} className="cursor-pointer select-none">
-            <p className={`text-2xl font-bold ${
-                ativa
-                    ? 'text-indigo-700'
-                    : (metrica === 'umidade_ar' ? classificarUmidade(valor) : null) ?? 'text-gray-800'
-            }`}>
-                {valor ?? '—'}{unidade}
+            <p
+                className={`text-2xl font-bold ${
+                    ativa
+                        ? 'text-indigo-700'
+                        : (metrica === 'umidade_ar' ? classificarUmidade(valor) : null) ?? 'text-gray-800'
+                }`}
+            >
+                {valor ?? '—'}
+                {unidade}
             </p>
             <p className="text-xs text-gray-500">{rotulo}</p>
         </div>
@@ -95,148 +107,115 @@ function EstacaoCard({ estacao }) {
             .finally(() => setCarregando(false));
     };
 
+    const temBadges = estacao.offline || Boolean(leitura?.itgu_classificacao);
+
     return (
-        <Link href={route('estacoes.show', estacao.id)} className={`block bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 hover:shadow-md transition-shadow ${estacao.offline ? "ring-2 ring-red-300" : ""}`}>
-            <div className="flex justify-between items-start mb-4">
-                <div>
-                    <h3 className="font-semibold text-lg text-gray-800 flex items-center gap-2">
-                        {estacao.nome}
-                        {estacao.offline && (
-                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-                                Offline
-                            </span>
-                        )}
-                    </h3>
-                    <p className="text-sm text-gray-500">{estacao.localizacao}</p>
-                </div>
-                {leitura?.itgu_classificacao && (
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${cor}`}>
-                        {leitura.itgu_classificacao}
-                    </span>
-                )}
-            </div>
-            {leitura ? (
-                <>
-                    <div className="grid grid-cols-3 gap-4 text-center">
-                        <MetricaClicavel
-                            rotulo="Temp. Ar"
-                            valor={leitura.temperatura_ar}
-                            unidade="°"
-                            metrica="temperatura_ar"
-                            aoClicar={clicarMetrica}
-                            ativa={metricaExpandida === 'temperatura_ar'}
-                        />
-                        <MetricaClicavel
-                            rotulo="Umidade"
-                            valor={leitura.umidade_ar}
-                            unidade="%"
-                            metrica="umidade_ar"
-                            aoClicar={clicarMetrica}
-                            ativa={metricaExpandida === 'umidade_ar'}
-                        />
-                        <MetricaClicavel
-                            rotulo="ITGU"
-                            valor={leitura.itgu}
-                            unidade=""
-                            metrica="itgu"
-                            aoClicar={clicarMetrica}
-                            ativa={metricaExpandida === 'itgu'}
-                        />
+        <Link
+            href={route('estacoes.show', estacao.id)}
+            className={`flex flex-col justify-between bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 hover:shadow-md transition-shadow ${
+                estacao.offline ? 'ring-2 ring-red-300' : ''
+            }`}
+        >
+            <div>
+                <div className="flex justify-between items-start gap-3 mb-4">
+                    <div className="min-w-0">
+                        <h3 className="font-semibold text-lg text-gray-800 leading-snug">{estacao.nome}</h3>
+                        <p className="text-sm text-gray-500 mt-0.5">{estacao.localizacao}</p>
                     </div>
-                    {metricaExpandida && (
-                        <div className="bg-gray-50 rounded-lg mt-3 px-4 py-2 flex justify-center gap-4">
-                            {carregando ? (
-                                <span className="text-xs text-gray-400">Carregando...</span>
-                            ) : (
-                                <>
-                                    {dadosMinMax?.maximo ? (
-                                        <span className={`text-xs ${
-                                            metricaExpandida === 'umidade_ar'
-                                                ? classificarUmidade(dadosMinMax.maximo.valor)
-                                                : 'text-red-600'
-                                        }`}>
-                                            ↑ Máx {dadosMinMax.maximo.valor} às {dadosMinMax.maximo.hora}
-                                        </span>
-                                    ) : (
-                                        <span className="text-xs text-gray-400">Sem dado de máximo hoje</span>
-                                    )}
-                                    {dadosMinMax?.minimo && (
-                                        <span className={`text-xs ${
-                                            metricaExpandida === 'umidade_ar'
-                                                ? classificarUmidade(dadosMinMax.minimo.valor)
-                                                : 'text-blue-600'
-                                        }`}>
-                                            ↓ Mín {dadosMinMax.minimo.valor} às {dadosMinMax.minimo.hora}
-                                        </span>
-                                    )}
-                                </>
+                    {temBadges && (
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                            {estacao.offline && (
+                                <span className="inline-flex items-center justify-center h-6 px-2.5 rounded text-xs font-medium leading-none bg-red-100 text-red-700">
+                                    Offline
+                                </span>
+                            )}
+                            {leitura?.itgu_classificacao && (
+                                <span
+                                    className={`inline-flex items-center justify-center h-6 px-2.5 rounded text-xs font-medium leading-none ${cor}`}
+                                >
+                                    {leitura.itgu_classificacao}
+                                </span>
                             )}
                         </div>
                     )}
-                </>
-            ) : (
-                <p className="text-sm text-gray-400">Sem leituras registradas</p>
-            )}
-            {leitura?.registrado_em && (
-                <p className="text-xs text-gray-400 mt-4">
-                    Atualizado em {new Date(leitura.registrado_em).toLocaleString('pt-BR')}
-                </p>
-            )}
-        </Link>
-    );
-}
-function ListaAlertas({ alertas, onResolver, onReabrir }) {
-    return (
-        <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-            <h3 className="font-semibold text-lg text-gray-800 mb-4">Alertas Recentes</h3>
-            {alertas.length > 0 ? (
-                <ul className="divide-y divide-gray-100">
-                    {alertas.map((alerta) => (
-                        <li key={alerta.id} className="py-3 flex justify-between items-center gap-3">
-                            <div className="min-w-0">
-                                <p className="text-sm font-medium text-gray-800 truncate">
-                                    {alerta.estacao_nome} — {alerta.parametro}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                    Valor lido: {alerta.valor_lido} (limite: {alerta.valor_limite})
-                                </p>
-                                <p className="text-xs text-gray-400 mt-0.5">
-                                    {new Date(alerta.created_at).toLocaleString('pt-BR')}
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                                <span
-                                    className={`px-2 py-1 rounded text-xs font-medium ${
-                                        alerta.resolvido
-                                            ? 'bg-green-100 text-green-800'
-                                            : 'bg-red-100 text-red-800'
-                                    }`}
-                                >
-                                    {alerta.resolvido ? 'Resolvido' : 'Ativo'}
-                                </span>
-                                {alerta.resolvido ? (
-                                    <button
-                                        onClick={() => onReabrir(alerta.id)}
-                                        className="text-xs text-gray-500 hover:underline whitespace-nowrap"
-                                    >
-                                        Reabrir
-                                    </button>
+                </div>
+            </div>
+            <div>
+                {leitura ? (
+                    <>
+                        <div className="grid grid-cols-3 gap-4 text-center">
+                            <MetricaClicavel
+                                rotulo="Temp. Ar"
+                                valor={leitura.temperatura_ar}
+                                unidade="°"
+                                metrica="temperatura_ar"
+                                aoClicar={clicarMetrica}
+                                ativa={metricaExpandida === 'temperatura_ar'}
+                            />
+                            <MetricaClicavel
+                                rotulo="Umidade"
+                                valor={leitura.umidade_ar}
+                                unidade="%"
+                                metrica="umidade_ar"
+                                aoClicar={clicarMetrica}
+                                ativa={metricaExpandida === 'umidade_ar'}
+                            />
+                            <MetricaClicavel
+                                rotulo="ITGU"
+                                valor={leitura.itgu}
+                                unidade=""
+                                metrica="itgu"
+                                aoClicar={clicarMetrica}
+                                ativa={metricaExpandida === 'itgu'}
+                            />
+                        </div>
+                        {metricaExpandida && (
+                            <div className="bg-gray-50 rounded-lg mt-3 px-4 py-2 flex justify-center gap-4">
+                                {carregando ? (
+                                    <span className="text-xs text-gray-400">Carregando...</span>
                                 ) : (
-                                    <button
-                                        onClick={() => onResolver(alerta.id)}
-                                        className="text-xs text-blue-600 hover:underline whitespace-nowrap"
-                                    >
-                                        Resolver
-                                    </button>
+                                    <>
+                                        {dadosMinMax?.maximo ? (
+                                            <span
+                                                className={`inline-flex items-center gap-0.5 text-xs ${
+                                                    metricaExpandida === 'umidade_ar'
+                                                        ? classificarUmidade(dadosMinMax.maximo.valor)
+                                                        : 'text-red-600'
+                                                }`}
+                                            >
+                                                <ArrowUp className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                                Máx {dadosMinMax.maximo.valor} às {dadosMinMax.maximo.hora}
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs text-gray-400">Sem dado de máximo hoje</span>
+                                        )}
+                                        {dadosMinMax?.minimo && (
+                                            <span
+                                                className={`inline-flex items-center gap-0.5 text-xs ${
+                                                    metricaExpandida === 'umidade_ar'
+                                                        ? classificarUmidade(dadosMinMax.minimo.valor)
+                                                        : 'text-blue-600'
+                                                }`}
+                                            >
+                                                <ArrowDown className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                                Mín {dadosMinMax.minimo.valor} às {dadosMinMax.minimo.hora}
+                                            </span>
+                                        )}
+                                    </>
                                 )}
                             </div>
-                        </li>
-                    ))}
-                </ul>
-            ) : (
-                <p className="text-sm text-gray-400">Nenhum alerta registrado</p>
-            )}
-        </div>
+                        )}
+                    </>
+                ) : (
+                    <p className="text-sm text-gray-400">Sem leituras registradas</p>
+                )}
+                {leitura?.registrado_em && (
+                    <p className="text-xs text-gray-400 mt-4">
+                        Atualizado em {new Date(leitura.registrado_em).toLocaleString('pt-BR')}
+                    </p>
+                )}
+            </div>
+        </Link>
     );
 }
 
@@ -299,7 +278,11 @@ export default function Dashboard({
                 ...(periodoSelecionado ? { periodo: periodoSelecionado } : {}),
                 ...(dataReferencia ? { data: dataReferencia } : {}),
             },
-            { preserveState: true, preserveScroll: true }
+            {
+                preserveState: true,
+                preserveScroll: true,
+                only: [...PROPS_GRAFICO, 'alertasRecentes', 'estacaoSelecionada'],
+            }
         );
     };
 
@@ -312,7 +295,7 @@ export default function Dashboard({
                 ...(periodoSelecionado ? { periodo: periodoSelecionado } : {}),
                 ...(dataReferencia ? { data: dataReferencia } : {}),
             },
-            { preserveState: true, preserveScroll: true }
+            { preserveState: true, preserveScroll: true, only: PROPS_GRAFICO }
         );
     };
 
@@ -325,7 +308,7 @@ export default function Dashboard({
                 periodo,
                 ...(dataReferencia ? { data: dataReferencia } : {}),
             },
-            { preserveState: true, preserveScroll: true }
+            { preserveState: true, preserveScroll: true, only: PROPS_GRAFICO }
         );
     };
 
@@ -338,32 +321,42 @@ export default function Dashboard({
                 ...(periodoSelecionado ? { periodo: periodoSelecionado } : {}),
                 data: novaData,
             },
-            { preserveState: true, preserveScroll: true }
+            { preserveState: true, preserveScroll: true, only: PROPS_GRAFICO }
         );
     };
 
     const handleResolverAlerta = (alertaId) => {
-        router.post(route('alertas.resolver', alertaId), {}, {
-            preserveState: true,
-            preserveScroll: true,
-            onSuccess: () => {
-                setAlertasRecentes((atual) =>
-                    atual.map((a) => (a.id === alertaId ? { ...a, resolvido: true } : a))
-                );
-            },
-        });
+        router.post(
+            route('alertas.resolver', alertaId),
+            {},
+            {
+                preserveState: true,
+                preserveScroll: true,
+                only: ['alertasRecentes', 'flash'],
+                onSuccess: () => {
+                    setAlertasRecentes((atual) =>
+                        atual.map((a) => (a.id === alertaId ? { ...a, resolvido: true } : a))
+                    );
+                },
+            }
+        );
     };
 
     const handleReabrirAlerta = (alertaId) => {
-        router.post(route('alertas.reabrir', alertaId), {}, {
-            preserveState: true,
-            preserveScroll: true,
-            onSuccess: () => {
-                setAlertasRecentes((atual) =>
-                    atual.map((a) => (a.id === alertaId ? { ...a, resolvido: false } : a))
-                );
-            },
-        });
+        router.post(
+            route('alertas.reabrir', alertaId),
+            {},
+            {
+                preserveState: true,
+                preserveScroll: true,
+                only: ['alertasRecentes', 'flash'],
+                onSuccess: () => {
+                    setAlertasRecentes((atual) =>
+                        atual.map((a) => (a.id === alertaId ? { ...a, resolvido: false } : a))
+                    );
+                },
+            }
+        );
     };
 
     const estacoesFiltradas = estacaoSelecionada
@@ -373,7 +366,7 @@ export default function Dashboard({
     return (
         <AuthenticatedLayout
             header={
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-3 flex-wrap">
                     <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                         Dashboard — Monitoramento de Estações Meteorológicas
                     </h2>
@@ -401,40 +394,33 @@ export default function Dashboard({
                         )}
                     </div>
 
-                    <div className="flex justify-between items-center gap-3 flex-wrap">
-                        <NavegacaoPeriodo
-                            periodo={periodoSelecionado}
-                            dataReferencia={dataReferencia}
-                            navegacaoPeriodo={navegacaoPeriodo}
-                            onNavegar={handleNavegarData}
-                        />
-                        <div className="flex items-center gap-3 flex-wrap">
-                            <SeletorPeriodo
-                                periodosDisponiveis={periodosDisponiveis}
-                                periodoSelecionado={periodoSelecionado}
-                                onChange={handleSelecionarPeriodo}
-                            />
-                            <SeletorMetrica
-                                metricasDisponiveis={metricasDisponiveis}
-                                metricaSelecionada={metricaSelecionada}
-                                onChange={handleSelecionarMetrica}
-                            />
-                        </div>
-                    </div>
+                    <BarraFiltroTemporal
+                        periodo={periodoSelecionado}
+                        periodosDisponiveis={periodosDisponiveis}
+                        dataReferencia={dataReferencia}
+                        navegacaoPeriodo={navegacaoPeriodo}
+                        onNavegarData={handleNavegarData}
+                        onMudarPeriodo={handleSelecionarPeriodo}
+                    />
 
                     <Suspense fallback={<CarregandoWidget />}>
                         <GraficoMetrica
                             serieMetrica={serieMetrica}
                             estacoes={estacoes}
                             metricaSelecionada={metricaSelecionada}
+                            metricasDisponiveis={metricasDisponiveis}
+                            onSelecionarMetrica={handleSelecionarMetrica}
                         />
                     </Suspense>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <ListaAlertas
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+                        <PainelAlertasRecentes
                             alertas={alertasRecentes}
+                            exibirEstacao
                             onResolver={handleResolverAlerta}
                             onReabrir={handleReabrirAlerta}
+                            mensagemVazia="Nenhum alerta registrado"
+                            alturaMaximaClass="max-h-[300px]"
                         />
                         <Suspense fallback={<CarregandoWidget />}>
                             <MapaEstacoes estacoes={estacoesFiltradas} />

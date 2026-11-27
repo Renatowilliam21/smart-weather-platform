@@ -16,35 +16,39 @@ export default function MapaEstacoes({ estacoes }) {
         : [-5.1, -39.1];
 
     return (
-        <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
+        <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6 flex flex-col h-full isolate">
             <h3 className="font-semibold text-lg text-gray-800 mb-4">Localização das Estações</h3>
             {comCoordenadas.length > 0 ? (
-                <MapContainer center={centro} zoom={10} style={{ height: '300px', width: '100%' }}>
-                    <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                    />
-                    {comCoordenadas.map((estacao) => (
-                        <Marker
-                            key={estacao.id}
-                            position={[parseFloat(estacao.latitude), parseFloat(estacao.longitude)]}
-                        >
-                            <Popup>
-                                <strong>{estacao.nome}</strong>
-                                <br />
-                                {estacao.localizacao}
-                                {estacao.ultima_leitura && (
-                                    <>
-                                        <br />
-                                        ITGU: {estacao.ultima_leitura.itgu ?? '—'}
-                                    </>
-                                )}
-                            </Popup>
-                        </Marker>
-                    ))}
-                </MapContainer>
+                <div className="flex-1 min-h-[300px] w-full rounded-lg overflow-hidden">
+                    <MapContainer center={centro} zoom={10} style={{ height: '100%', minHeight: '300px', width: '100%' }}>
+                        <TileLayer
+                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                        />
+                        {comCoordenadas.map((estacao) => (
+                            <Marker
+                                key={estacao.id}
+                                position={[parseFloat(estacao.latitude), parseFloat(estacao.longitude)]}
+                            >
+                                <Popup>
+                                    <strong>{estacao.nome}</strong>
+                                    <br />
+                                    {estacao.localizacao}
+                                    {estacao.ultima_leitura && (
+                                        <>
+                                            <br />
+                                            ITGU: {estacao.ultima_leitura.itgu ?? '—'}
+                                        </>
+                                    )}
+                                </Popup>
+                            </Marker>
+                        ))}
+                    </MapContainer>
+                </div>
             ) : (
-                <p className="text-sm text-gray-400">Nenhuma estação com coordenadas cadastradas</p>
+                <div className="flex-1 min-h-[200px] flex items-center justify-center">
+                    <p className="text-sm text-gray-400">Nenhuma estação com coordenadas cadastradas</p>
+                </div>
             )}
         </div>
     );

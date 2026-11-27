@@ -1,6 +1,7 @@
 import GuestLayout from '@/Layouts/GuestLayout';
 import InputError from '@/Components/InputError';
 import InputLabel from '@/Components/InputLabel';
+import PasswordInput from '@/Components/PasswordInput';
 import PrimaryButton from '@/Components/PrimaryButton';
 import TextInput from '@/Components/TextInput';
 import { Head, useForm } from '@inertiajs/react';
@@ -44,12 +45,12 @@ export default function ResetPassword({ token, email }) {
                 <div className="mt-4">
                     <InputLabel htmlFor="password" value="Nova senha" />
 
-                    <TextInput
+                    <PasswordInput
                         id="password"
-                        type="password"
                         name="password"
                         value={data.password}
-                        className="mt-1 block w-full"
+                        wrapperClassName="mt-1"
+                        className="block w-full"
                         autoComplete="new-password"
                         isFocused={true}
                         onChange={(e) => setData('password', e.target.value)}
@@ -64,12 +65,12 @@ export default function ResetPassword({ token, email }) {
                         value="Confirmar nova senha"
                     />
 
-                    <TextInput
-                        type="password"
+                    <PasswordInput
                         id="password_confirmation"
                         name="password_confirmation"
                         value={data.password_confirmation}
-                        className="mt-1 block w-full"
+                        wrapperClassName="mt-1"
+                        className="block w-full"
                         autoComplete="new-password"
                         onChange={(e) =>
                             setData('password_confirmation', e.target.value)

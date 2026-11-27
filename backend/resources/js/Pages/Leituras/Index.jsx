@@ -1,5 +1,7 @@
+import Pagination from '@/Components/Pagination';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
+import { Download } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 
 const CLASSIFICACAO_CORES = {
@@ -158,9 +160,13 @@ export default function Index({ leituras, estacoes, filtros }) {
                                     Limpar
                                 </button>
                             </div>
-                                    <div className="ml-auto">
-                                <a href={urlExportacao()} className="px-4 py-2 bg-green-700 text-white text-sm font-medium rounded hover:bg-green-800 inline-block">
-                                    ⬇ Exportar CSV
+                            <div className="ml-auto">
+                                <a
+                                    href={urlExportacao()}
+                                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white text-sm font-medium rounded hover:bg-green-800 transition-colors"
+                                >
+                                    <Download className="h-4 w-4" aria-hidden="true" />
+                                    Exportar CSV
                                 </a>
                             </div>
                             
@@ -264,26 +270,7 @@ export default function Index({ leituras, estacoes, filtros }) {
                         </div>
 
                         {/* Paginação */}
-                        {leituras.links.length > 3 && (
-                            <div className="px-6 py-4 border-t border-gray-100 flex flex-wrap gap-1">
-                                {leituras.links.map((link, i) => (
-                                    <Link
-                                        key={i}
-                                        href={link.url ?? '#'}
-                                        preserveState
-                                        preserveScroll
-                                        className={`px-3 py-1 rounded text-sm ${
-                                            link.active
-                                                ? 'bg-gray-800 text-white'
-                                                : link.url
-                                                ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                                : 'text-gray-300 cursor-not-allowed'
-                                        }`}
-                                        dangerouslySetInnerHTML={{ __html: link.label }}
-                                    />
-                                ))}
-                            </div>
-                        )}
+                        <Pagination links={leituras.links} />
                     </div>
                 </div>
             </div>
